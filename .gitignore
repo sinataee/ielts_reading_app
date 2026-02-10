@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Environment and secrets
+.env
+secrets/*.json
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Test JSON files only
+tests/*.json
+*.test.json
