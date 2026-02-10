@@ -1,0 +1,184 @@
+"""
+QUICK START GUIDE
+=================
+
+Welcome to the IELTS Reading Test Application!
+
+STEP 1: VERIFY INSTALLATION
+----------------------------
+Open terminal/command prompt and run:
+    python --version
+
+You should see Python 3.7 or higher.
+
+Test tkinter:
+    python -m tkinter
+
+A small window should appear. Close it to continue.
+
+
+STEP 2: LAUNCH THE APPLICATION
+-------------------------------
+Navigate to the application directory:
+    cd ielts_reading_app
+
+Run the main launcher:
+    python main.py
+
+You should see a window with three options:
+- Content Editor
+- Take Exam  
+- Create Sample Package
+
+
+STEP 3: CREATE YOUR FIRST PACKAGE
+----------------------------------
+Option A: Use the Sample Package (Recommended for first-time users)
+1. Click "Create Sample Package"
+2. Choose where to save it (e.g., "my_first_test.json")
+3. Click Save
+
+Option B: Create Your Own Package
+1. Click "Content Editor"
+2. Enter explanation text (e.g., "You should spend about 20 minutes...")
+3. Enter title (e.g., "Climate Change and Global Warming")
+4. Click "Add Paragraph" and fill in paragraph details
+5. Click "Save Reading Content"
+6. Click "Add Question Group"
+7. Fill in questions and answers (minimum 2 questions)
+8. Click "Save Question Group"
+9. Go to File > Save Package
+
+
+STEP 4: TAKE A TEST
+-------------------
+1. Click "Take Exam" from the main menu
+2. Select your saved package file (.json)
+3. Read the passage on the left side
+4. Click "Start Exam" to begin the timer
+5. Answer questions on the right side
+6. Optional: Highlight important text by selecting it
+7. Click "End Exam" when finished
+
+
+STEP 5: VIEW YOUR RESULTS
+--------------------------
+Results appear automatically after exam submission:
+- Band Score (0-9)
+- Correct/Incorrect/Unanswered counts
+- Detailed feedback tab
+- Incorrect answers review
+- Performance statistics
+
+
+TROUBLESHOOTING
+---------------
+Problem: "tkinter not found"
+Solution: Install tkinter:
+    - Ubuntu/Debian: sudo apt-get install python3-tk
+    - Fedora: sudo dnf install python3-tkinter
+    - macOS: tkinter should be included with Python
+    - Windows: Reinstall Python with tcl/tk option checked
+
+Problem: Application freezes
+Solution: 
+    - Close and restart the application
+    - Check that no other process is blocking Python
+
+Problem: Can't load package file
+Solution:
+    - Verify the file is a .json file
+    - Try creating a new sample package
+    - Check file permissions
+
+
+KEYBOARD SHORTCUTS (when applicable)
+-------------------------------------
+Content Editor:
+- Ctrl+S: Save (via File menu)
+- Ctrl+O: Open (via File menu)
+
+Exam Engine:
+- Select text + click color: Highlight
+- Alt+F4 / Cmd+Q: Exit application
+
+
+TIPS FOR BEST EXPERIENCE
+-------------------------
+1. Create packages in the Content Editor first
+2. Start with the sample package to understand the format
+3. Use the pause button if you need a break during exam
+4. Review incorrect answers to learn from mistakes
+5. Export results to track your progress over time
+
+
+SUPPORTED QUESTION TYPES
+-------------------------
+✓ Multiple Choice (A, B, C, D)
+✓ True/False/Not Given
+✓ Yes/No/Not Given
+✓ Matching Information
+✓ Matching Headings
+✓ Matching Features
+✓ Matching Sentence Endings
+✓ Sentence Completion
+✓ Summary/Table/Flow-chart Completion
+✓ Diagram Label Completion
+✓ Short Answer Questions
+
+
+FILE LOCATIONS
+--------------
+Application files:
+    main.py              - Main launcher
+    content_editor.py    - Content creation
+    exam_engine.py       - Test taking
+    result_engine.py     - Results display
+    models.py            - Data structures
+
+Your created files:
+    *.json               - Reading packages
+    *_results.json       - Exported results
+
+
+GETTING HELP
+------------
+1. Read the README.md file for detailed documentation
+2. Check the module docstrings in each Python file
+3. Review the sample package structure
+4. Examine the models.py file for data formats
+
+
+ADVANCED FEATURES
+-----------------
+1. Rich Text Formatting
+   - Bold, italic, different sizes
+   - Headers (H1, H2)
+   - Left and center alignment
+
+2. Multiple Question Groups
+   - Mix different question types in one test
+   - Each group can have 2-10 questions
+
+3. Additional Inputs
+   - For matching questions, provide lists
+   - For diagram questions, reference images
+   - Stored in JSON format
+
+4. Answer Validation
+   - Case-insensitive comparison
+   - Whitespace trimming
+   - Punctuation removal
+
+
+NEXT STEPS
+----------
+1. Create 3-4 practice packages
+2. Take tests and review results
+3. Track your band score improvement
+4. Focus on question types where you score lower
+5. Practice time management (20 minutes per passage)
+
+
+Happy studying and good luck with your IELTS preparation! 🎓
+"""

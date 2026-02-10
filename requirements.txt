@@ -1,0 +1,23 @@
+# IELTS Reading Test Application Requirements
+
+# Python Standard Library modules (no installation needed)
+# - tkinter (GUI framework)
+# - json (data serialization)
+# - datetime (time handling)
+# - threading (timer functionality)
+# - dataclasses (data models)
+# - enum (enumerations)
+# - uuid (unique identifiers)
+# - typing (type hints)
+
+# This application uses only Python standard library modules
+# No additional pip packages required
+
+# Minimum Python version: 3.7+
+# Recommended Python version: 3.9+
+
+# To verify your Python installation:
+# python --version
+
+# To verify tkinter is available:
+# python -m tkinter
