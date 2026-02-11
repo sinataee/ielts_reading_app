@@ -463,7 +463,7 @@ class ExamEngineWindow:
             table_container = tk.Frame(frame, bg='white', relief=tk.SOLID, bd=2)
             table_container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
             
-            table_canvas = tk.Canvas(table_container, bg='white', height=380)
+            table_canvas = tk.Canvas(table_container, bg='white', height=460)
             table_scrollbar = ttk.Scrollbar(table_container, orient="vertical", command=table_canvas.yview)
             table_inner = tk.Frame(table_canvas, bg='white')
             
@@ -486,9 +486,9 @@ class ExamEngineWindow:
                     is_header = (r == 0)
                     
                     # Use Text widget instead of Label to support highlighting
-                    cell_widget = tk.Text(table_inner, width=26, height=4, 
+                    cell_widget = tk.Text(table_inner, width=34, height=5, 
                                          relief=tk.SOLID, bd=1, wrap=tk.WORD,
-                                         font=('Arial', 11, 'bold' if is_header else 'normal'),
+                                         font=('Arial', 12, 'bold' if is_header else 'normal'),
                                          padx=5, pady=5)
                     
                     # Set background color

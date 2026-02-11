@@ -387,78 +387,150 @@ class ContentEditorWindow:
                         cols_var = tk.StringVar(value="3")
                         tk.Spinbox(control_frame, from_=2, to=6, textvariable=cols_var, width=5).pack(side=tk.LEFT)
                         
-                        table_data = {'rows': rows_var, 'cols': cols_var, 'cells': {}}
-                        
+                        table_data = {
+                            'rows': rows_var,
+                            'cols': cols_var,
+                            'cells': {},
+                            'selected_cell': None,
+                            'font_family': 'Arial',
+                            'font_size': 12
+                        }
+
+                        style_frame = tk.Frame(table_builder_frame)
+                        style_frame.pack(fill=tk.X, pady=(0, 5))
+
+                        tk.Label(style_frame, text="Cell Text Controls:", font=('Arial', 9, 'bold')).pack(side=tk.LEFT, padx=5)
+                        tk.Label(style_frame, text="Size:").pack(side=tk.LEFT, padx=(8, 2))
+                        font_size_var = tk.StringVar(value="12")
+                        font_size_combo = ttk.Combobox(
+                            style_frame,
+                            textvariable=font_size_var,
+                            values=['10', '11', '12', '13', '14', '16', '18'],
+                            width=4,
+                            state='readonly'
+                        )
+                        font_size_combo.pack(side=tk.LEFT)
+
+                        def set_selected_cell(widget):
+                            table_data['selected_cell'] = widget
+                            widget.configure(highlightthickness=2, highlightbackground='#3498db', highlightcolor='#3498db')
+
+                        def clear_other_cell_highlights(selected_widget):
+                            for cell in table_data['cells'].values():
+                                if cell != selected_widget:
+                                    cell.configure(highlightthickness=1, highlightbackground='#d0d0d0', highlightcolor='#d0d0d0')
+
+                        def apply_cell_style(style_name):
+                            selected_cell = table_data.get('selected_cell')
+                            if not selected_cell:
+                                messagebox.showinfo("Select a table cell", "Click inside a cell first, then apply text style.")
+                                return
+                            try:
+                                start = selected_cell.index('sel.first')
+                                end = selected_cell.index('sel.last')
+                            except tk.TclError:
+                                start, end = '1.0', 'end-1c'
+
+                            if style_name in selected_cell.tag_names('insert'):
+                                selected_cell.tag_remove(style_name, start, end)
+                            else:
+                                selected_cell.tag_add(style_name, start, end)
+
+                        def apply_font_size(event=None):
+                            selected_cell = table_data.get('selected_cell')
+                            if not selected_cell:
+                                return
+                            size = int(font_size_var.get())
+                            table_data['font_size'] = size
+                            selected_cell.configure(font=(table_data['font_family'], size))
+                            selected_cell.tag_configure('bold', font=(table_data['font_family'], size, 'bold'))
+                            selected_cell.tag_configure('italic', font=(table_data['font_family'], size, 'italic'))
+
+                        tk.Button(style_frame, text='B', width=3, font=('Arial', 10, 'bold'),
+                                  command=lambda: apply_cell_style('bold')).pack(side=tk.LEFT, padx=3)
+                        tk.Button(style_frame, text='I', width=3, font=('Arial', 10, 'italic'),
+                                  command=lambda: apply_cell_style('italic')).pack(side=tk.LEFT, padx=2)
+                        font_size_combo.bind('<<ComboboxSelected>>', apply_font_size)
+
+                        tk.Label(style_frame, text="Tip: select text in a cell and press B/I", 
+                                font=('Arial', 8, 'italic')).pack(side=tk.LEFT, padx=10)
+
                         def create_table():
                             # Clear existing table
                             for widget in table_display_frame.winfo_children():
                                 widget.destroy()
-                            
+
                             rows = int(rows_var.get())
                             cols = int(cols_var.get())
                             table_data['cells'] = {}
-                            
+                            table_data['selected_cell'] = None
+
                             # Create table grid
                             for r in range(rows):
                                 for c in range(cols):
                                     cell_entry = tk.Text(
                                         table_display_frame,
-                                        width=24,
-                                        height=3,
+                                        width=34,
+                                        height=5,
                                         wrap=tk.WORD,
-                                        font=('Arial', 11),
+                                        font=(table_data['font_family'], table_data['font_size']),
                                         relief=tk.SOLID,
                                         bd=1,
-                                        padx=5,
-                                        pady=4
+                                        padx=7,
+                                        pady=6,
+                                        undo=True
                                     )
-                                    cell_entry.grid(row=r, column=c, padx=3, pady=3, sticky='nsew')
-                                    
+                                    cell_entry.grid(row=r, column=c, padx=4, pady=4, sticky='nsew')
+                                    cell_entry.tag_configure('bold', font=(table_data['font_family'], table_data['font_size'], 'bold'))
+                                    cell_entry.tag_configure('italic', font=(table_data['font_family'], table_data['font_size'], 'italic'))
+                                    cell_entry.configure(highlightthickness=1, highlightbackground='#d0d0d0', highlightcolor='#d0d0d0')
+                                    cell_entry.bind('<FocusIn>', lambda e, w=cell_entry: (set_selected_cell(w), clear_other_cell_highlights(w)))
+
                                     # Pre-fill header row
                                     if r == 0:
                                         cell_entry.insert("1.0", f"Header {c+1}")
-                                    
+
                                     table_data['cells'][f"{r},{c}"] = cell_entry
-                            
+
                             # Configure weights for easier expansion and editing
                             for r in range(rows):
                                 table_display_frame.rowconfigure(r, weight=1)
                             for c in range(cols):
                                 table_display_frame.columnconfigure(c, weight=1)
-                        
+
                         tk.Button(control_frame, text="Create Table", command=create_table,
                                  bg='#3498db', fg='white').pack(side=tk.LEFT, padx=10)
-                        
+
                         tk.Label(control_frame, text="Use [BLANK] or [1], [2], etc. for gaps",
                                 font=('Arial', 8, 'italic')).pack(side=tk.LEFT, padx=10)
-                        
+
                         # Table display area with scrollbar
                         table_scroll_frame = tk.Frame(table_builder_frame)
                         table_scroll_frame.pack(fill=tk.BOTH, expand=True, pady=5)
-                        
-                        table_canvas = tk.Canvas(table_scroll_frame, height=320)
-                        table_scrollbar = tk.Scrollbar(table_scroll_frame, orient="vertical", 
+
+                        table_canvas = tk.Canvas(table_scroll_frame, height=420)
+                        table_scrollbar = tk.Scrollbar(table_scroll_frame, orient="vertical",
                                                       command=table_canvas.yview)
                         table_scrollbar_x = tk.Scrollbar(table_scroll_frame, orient="horizontal",
                                                          command=table_canvas.xview)
                         table_display_frame = tk.Frame(table_canvas)
-                        
-                        table_display_frame.bind("<Configure>", 
+
+                        table_display_frame.bind("<Configure>",
                                                 lambda e: table_canvas.configure(scrollregion=table_canvas.bbox("all")))
-                        
+
                         table_canvas.create_window((0, 0), window=table_display_frame, anchor="nw")
                         table_canvas.configure(
                             yscrollcommand=table_scrollbar.set,
                             xscrollcommand=table_scrollbar_x.set
                         )
-                        
+
                         table_canvas.pack(side="left", fill="both", expand=True)
                         table_scrollbar.pack(side="right", fill="y")
                         table_scrollbar_x.pack(side="bottom", fill="x")
-                        
+
                         # Create initial table
                         create_table()
-                        
+
                         additional_widgets['tableData'] = table_data
                         additional_widgets['type9_mode'] = 'table'
                     
