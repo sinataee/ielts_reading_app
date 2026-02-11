@@ -141,12 +141,15 @@ class ExamEngineWindow:
         self.end_btn.pack(side=tk.LEFT, padx=5)
         
         # Main split screen
-        paned = tk.PanedWindow(self.root, orient=tk.HORIZONTAL)
+        paned = tk.PanedWindow(self.root, orient=tk.HORIZONTAL, sashrelief=tk.RAISED, sashwidth=6)
         paned.pack(fill=tk.BOTH, expand=True)
+        self.root.update_idletasks()
         
         # Left pane - Reading content
         left_frame = tk.Frame(paned)
-        paned.add(left_frame, width=700)
+        right_frame = tk.Frame(paned)
+        half_width = max(500, self.root.winfo_width() // 2)
+        paned.add(left_frame, minsize=450, width=half_width, stretch='always')
         
         tk.Label(left_frame, text="Reading Passage", font=('Arial', 14, 'bold'),
                 bg='#34495e', fg='white').pack(fill=tk.X)
@@ -158,6 +161,7 @@ class ExamEngineWindow:
         
         # Bind selection event for highlighting
         self.reading_text.bind("<<Selection>>", self.on_text_selection)
+        self.reading_text.bind("<ButtonRelease-1>", self.on_text_selection)
         
         # Configure highlight tags
         self.reading_text.tag_configure('highlight_yellow', background='#FFFF00')
@@ -166,8 +170,17 @@ class ExamEngineWindow:
         self.reading_text.tag_configure('highlight_pink', background='#FFB6C1')
         
         # Right pane - Questions
-        right_frame = tk.Frame(paned)
-        paned.add(right_frame, width=700)
+        paned.add(right_frame, minsize=450, width=half_width, stretch='always')
+
+        def keep_balanced_panes(event=None):
+            try:
+                total = max(900, self.root.winfo_width())
+                paned.sash_place(0, total // 2, 1)
+            except tk.TclError:
+                pass
+
+        self.root.after_idle(keep_balanced_panes)
+        self.root.bind('<Configure>', keep_balanced_panes, add='+')
         
         tk.Label(right_frame, text="Questions", font=('Arial', 14, 'bold'),
                 bg='#34495e', fg='white').pack(fill=tk.X)
@@ -182,8 +195,13 @@ class ExamEngineWindow:
             lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
         
-        canvas.create_window((0, 0), window=self.questions_frame, anchor="nw")
+        self.questions_window = canvas.create_window((0, 0), window=self.questions_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
+
+        def fit_questions_to_canvas(event):
+            canvas.itemconfigure(self.questions_window, width=event.width)
+
+        canvas.bind('<Configure>', fit_questions_to_canvas)
         
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
@@ -212,6 +230,30 @@ class ExamEngineWindow:
         widget.bind_all("<Button-4>", _on_mousewheel, add="+")
         widget.bind_all("<Button-5>", _on_mousewheel, add="+")
     
+    def _make_selectable_text(self, parent, text: str, font=('Arial', 10), wraplength=600,
+                              justify=tk.LEFT, padding=(0, 0), bold=False):
+        # Render selectable, read-only text with highlight support.
+        bg_color = parent.cget('bg')
+        char_width = max(30, int(wraplength / 7))
+        lines_estimate = max(1, min(8, (len(text) // char_width) + text.count('\n') + 1))
+        widget = tk.Text(parent, wrap=tk.WORD, height=lines_estimate, relief=tk.FLAT,
+                         bg=bg_color, font=font, padx=0, pady=0, borderwidth=0,
+                         highlightthickness=0, cursor='arrow')
+        widget.tag_configure('highlight_yellow', background='#FFFF00')
+        widget.tag_configure('highlight_green', background='#90EE90')
+        widget.tag_configure('highlight_blue', background='#ADD8E6')
+        widget.tag_configure('highlight_pink', background='#FFB6C1')
+        if bold:
+            widget.tag_configure('content', font=(font[0], font[1], 'bold'))
+            widget.insert('1.0', text, 'content')
+        else:
+            widget.insert('1.0', text)
+        widget.configure(state=tk.DISABLED)
+        widget.bind('<<Selection>>', lambda e, w=widget: self.show_highlight_menu(e, w))
+        widget.bind('<ButtonRelease-1>', lambda e, w=widget: self.show_highlight_menu(e, w))
+        widget.pack(anchor=tk.W, fill=tk.X, pady=padding[1])
+        return widget
+
     def load_reading_content(self):
         """Load reading content into left pane"""
         self.reading_text.config(state=tk.NORMAL)
@@ -258,8 +300,14 @@ class ExamEngineWindow:
             
             # Explanation
             if qg.explanation:
-                tk.Label(group_frame, text=qg.explanation, wraplength=600, 
-                        justify=tk.LEFT, font=('Arial', 10, 'italic')).pack(anchor=tk.W, pady=5)
+                self._make_selectable_text(
+                    group_frame,
+                    qg.explanation,
+                    font=('Arial', 10, 'italic'),
+                    wraplength=620,
+                    justify=tk.LEFT,
+                    padding=(0, 5)
+                )
             
             # Type indicator
             tk.Label(group_frame, text=f"Type: {qg.type.value}", 
@@ -280,8 +328,13 @@ class ExamEngineWindow:
                 if qg.type == QuestionType.TYPE1 and '\n' in q.text:
                     question_display = q.text.split('\n')[0]
                 
-                tk.Label(q_frame, text=f"{question_number}. {question_display}", 
-                        wraplength=500, justify=tk.LEFT, font=('Arial', 10)).pack(anchor=tk.W)
+                self._make_selectable_text(
+                    q_frame,
+                    f"{question_number}. {question_display}",
+                    font=('Arial', 10),
+                    wraplength=620,
+                    justify=tk.LEFT
+                )
                 
                 # Answer input based on question type
                 answer_widget = self.create_answer_input(q_frame, qg.type, q.question_id, q.text)
@@ -465,11 +518,12 @@ class ExamEngineWindow:
             
             table_canvas = tk.Canvas(table_container, bg='white', height=460)
             table_scrollbar = ttk.Scrollbar(table_container, orient="vertical", command=table_canvas.yview)
+            table_scrollbar_x = ttk.Scrollbar(table_container, orient="horizontal", command=table_canvas.xview)
             table_inner = tk.Frame(table_canvas, bg='white')
             
             table_inner.bind("<Configure>", lambda e: table_canvas.configure(scrollregion=table_canvas.bbox("all")))
             table_canvas.create_window((0, 0), window=table_inner, anchor="nw")
-            table_canvas.configure(yscrollcommand=table_scrollbar.set)
+            table_canvas.configure(yscrollcommand=table_scrollbar.set, xscrollcommand=table_scrollbar_x.set)
             
             # Display table with Text widgets for highlighting support
             table_data = data['tableData']
@@ -486,9 +540,9 @@ class ExamEngineWindow:
                     is_header = (r == 0)
                     
                     # Use Text widget instead of Label to support highlighting
-                    cell_widget = tk.Text(table_inner, width=34, height=5, 
+                    cell_widget = tk.Text(table_inner, width=24, height=4, 
                                          relief=tk.SOLID, bd=1, wrap=tk.WORD,
-                                         font=('Arial', 12, 'bold' if is_header else 'normal'),
+                                         font=('Arial', 11, 'bold' if is_header else 'normal'),
                                          padx=5, pady=5)
                     
                     # Set background color
@@ -519,6 +573,7 @@ class ExamEngineWindow:
             
             table_canvas.pack(side="left", fill="both", expand=True, padx=10, pady=10)
             table_scrollbar.pack(side="right", fill="y")
+            table_scrollbar_x.pack(side="bottom", fill="x")
             self.bind_mousewheel_scrolling(table_canvas)
         
         elif 'flowchartData' in data:
