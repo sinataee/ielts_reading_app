@@ -262,9 +262,12 @@ class ContentEditorWindow:
         dialog = tk.Toplevel(self.root)
         dialog.title("Add Question Group")
         dialog.geometry("1000x750")
-        
-        # Make dialog scrollable
-        main_canvas = tk.Canvas(dialog)
+        dialog.minsize(860, 620)
+        dialog.rowconfigure(0, weight=1)
+        dialog.columnconfigure(0, weight=1)
+
+        # Make dialog scrollable and responsive to resizing
+        main_canvas = tk.Canvas(dialog, highlightthickness=0)
         scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=main_canvas.yview)
         scrollable_dialog = tk.Frame(main_canvas)
         
@@ -273,8 +276,13 @@ class ContentEditorWindow:
             lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all"))
         )
         
-        main_canvas.create_window((0, 0), window=scrollable_dialog, anchor="nw")
+        dialog_window = main_canvas.create_window((0, 0), window=scrollable_dialog, anchor="nw")
         main_canvas.configure(yscrollcommand=scrollbar.set)
+
+        def fit_dialog_content_to_canvas(event):
+            main_canvas.itemconfigure(dialog_window, width=event.width)
+
+        main_canvas.bind("<Configure>", fit_dialog_content_to_canvas)
         
         # Explanation
         tk.Label(scrollable_dialog, text="Explanation:", font=('Arial', 10, 'bold')).pack(anchor=tk.W, padx=10, pady=5)
@@ -286,12 +294,12 @@ class ContentEditorWindow:
         type_var = tk.StringVar(value=QuestionType.TYPE1.value)
         type_combo = ttk.Combobox(scrollable_dialog, textvariable=type_var, 
                                   values=[qt.value for qt in QuestionType], width=50, state='readonly')
-        type_combo.pack(anchor=tk.W, padx=10)
+        type_combo.pack(fill=tk.X, padx=10)
         
         # Additional inputs frame (for lists, images, etc.)
         additional_frame = tk.LabelFrame(scrollable_dialog, text="Additional Inputs (depends on question type)", 
                                         font=('Arial', 10, 'bold'), padx=10, pady=10)
-        additional_frame.pack(fill=tk.X, padx=10, pady=10)
+        additional_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         additional_widgets = {}
         
@@ -806,8 +814,8 @@ Step 3: Final outcome
         save_btn.pack(pady=15)
         
         # Pack canvas and scrollbar
-        main_canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        main_canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
     
     def view_question_groups(self):
         """View all question groups"""
