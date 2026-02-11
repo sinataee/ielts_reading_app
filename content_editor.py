@@ -366,6 +366,10 @@ class ContentEditorWindow:
                 def update_type9_input():
                     for widget in content_frame.winfo_children():
                         widget.destroy()
+
+                    # Remove stale references from previous Type 9 mode widgets
+                    for key in ('summaryData', 'tableData', 'flowchartData'):
+                        additional_widgets.pop(key, None)
                     
                     input_type = input_type_var.get()
                     
@@ -523,14 +527,21 @@ class ContentEditorWindow:
                                                          command=table_canvas.xview)
                         table_display_frame = tk.Frame(table_canvas)
 
-                        table_display_frame.bind("<Configure>",
-                                                lambda e: table_canvas.configure(scrollregion=table_canvas.bbox("all")))
-
-                        table_canvas.create_window((0, 0), window=table_display_frame, anchor="nw")
+                        table_window = table_canvas.create_window((0, 0), window=table_display_frame, anchor="nw")
                         table_canvas.configure(
                             yscrollcommand=table_scrollbar.set,
                             xscrollcommand=table_scrollbar_x.set
                         )
+
+                        def sync_table_canvas_width(event=None):
+                            required_width = table_display_frame.winfo_reqwidth()
+                            canvas_width = table_canvas.winfo_width()
+                            target_width = canvas_width if required_width <= canvas_width else required_width
+                            table_canvas.itemconfigure(table_window, width=target_width)
+                            table_canvas.configure(scrollregion=table_canvas.bbox("all"))
+
+                        table_display_frame.bind("<Configure>", sync_table_canvas_width)
+                        table_canvas.bind("<Configure>", sync_table_canvas_width)
 
                         table_canvas.pack(side="left", fill="both", expand=True)
                         table_scrollbar.pack(side="right", fill="y")
@@ -538,6 +549,7 @@ class ContentEditorWindow:
 
                         # Create initial table
                         create_table()
+                        table_builder_frame.after_idle(sync_table_canvas_width)
 
                         additional_widgets['tableData'] = table_data
                         additional_widgets['type9_mode'] = 'table'
@@ -761,10 +773,14 @@ Step 3: Final outcome
                         'content': table_content
                     }
                 elif key == 'flowchartData':
+                    if not widget.winfo_exists():
+                        continue
                     content = widget.get("1.0", "end-1c").strip()
                     if content:
                         additional_data['flowchartData'] = content
                 elif isinstance(widget, scrolledtext.ScrolledText):
+                    if not widget.winfo_exists():
+                        continue
                     content = widget.get("1.0", "end-1c").strip()
                     if content:
                         if key in ['infoList', 'headingList', 'featureList', 'sentenceEndingList']:
