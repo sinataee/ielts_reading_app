@@ -392,8 +392,28 @@ class ExamEngineWindow:
         if question_type == QuestionType.TYPE1:  # Multiple choice
             var = tk.StringVar()
             frame = tk.Frame(parent)
-            frame.pack(anchor=tk.W, padx=20, pady=5)
-            
+            frame.pack(anchor=tk.W, fill=tk.X, padx=20, pady=5)
+
+            def add_selectable_choice_row(option, option_text):
+                row = tk.Frame(frame)
+                row.pack(anchor=tk.W, fill=tk.X, pady=2)
+
+                tk.Radiobutton(
+                    row,
+                    text="",
+                    variable=var,
+                    value=option,
+                    command=lambda: self.record_answer(question_id, var.get())
+                ).pack(side=tk.LEFT)
+
+                self._make_selectable_text(
+                    row,
+                    f"{option}. {option_text}",
+                    font=('Arial', 10),
+                    wraplength=520,
+                    justify=tk.LEFT
+                )
+
             # Extract choices from question text if embedded
             choices = ['A', 'B', 'C', 'D']  # Default
             if '\n' in question_text:
@@ -404,19 +424,15 @@ class ExamEngineWindow:
                         parts = line.split('.', 1)
                         if len(parts) >= 2:
                             option = parts[0].strip().upper()
-                            text = parts[1].strip()
-                            tk.Radiobutton(frame, text=f"{option}. {text}", variable=var, value=option,
-                                         command=lambda: self.record_answer(question_id, var.get()),
-                                         wraplength=500, justify=tk.LEFT).pack(anchor=tk.W, pady=2)
+                            option_text = parts[1].strip()
+                            add_selectable_choice_row(option, option_text)
                 else:
                     # Fallback to default options
                     for option in choices:
-                        tk.Radiobutton(frame, text=option, variable=var, value=option,
-                                     command=lambda: self.record_answer(question_id, var.get())).pack(anchor=tk.W)
+                        add_selectable_choice_row(option, option)
             else:
                 for option in choices:
-                    tk.Radiobutton(frame, text=option, variable=var, value=option,
-                                 command=lambda: self.record_answer(question_id, var.get())).pack(anchor=tk.W)
+                    add_selectable_choice_row(option, option)
             return var
         
         elif question_type in [QuestionType.TYPE2, QuestionType.TYPE3]:  # True/False/Not Given or Yes/No/Not Given
@@ -503,9 +519,13 @@ class ExamEngineWindow:
             list_frame.pack(fill=tk.X, padx=5, pady=5)
             
             for i, ending in enumerate(data['sentenceEndingList']):
-                tk.Label(list_frame, text=f"  {ending}", justify=tk.LEFT, 
-                        wraplength=600, font=('Arial', 10), bg='white',
-                        pady=3).pack(anchor=tk.W, padx=10, pady=2)
+                self._make_selectable_text(
+                    list_frame,
+                    f"  {ending}",
+                    font=('Arial', 10),
+                    wraplength=620,
+                    justify=tk.LEFT
+                )
                 options.append(ending.split('.')[0].strip() if '.' in ending else chr(65+i))
         
         elif 'summaryData' in data:
