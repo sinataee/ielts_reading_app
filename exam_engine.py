@@ -463,7 +463,7 @@ class ExamEngineWindow:
             table_container = tk.Frame(frame, bg='white', relief=tk.SOLID, bd=2)
             table_container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
             
-            table_canvas = tk.Canvas(table_container, bg='white', height=300)
+            table_canvas = tk.Canvas(table_container, bg='white', height=380)
             table_scrollbar = ttk.Scrollbar(table_container, orient="vertical", command=table_canvas.yview)
             table_inner = tk.Frame(table_canvas, bg='white')
             
@@ -486,9 +486,9 @@ class ExamEngineWindow:
                     is_header = (r == 0)
                     
                     # Use Text widget instead of Label to support highlighting
-                    cell_widget = tk.Text(table_inner, width=18, height=3, 
+                    cell_widget = tk.Text(table_inner, width=26, height=4, 
                                          relief=tk.SOLID, bd=1, wrap=tk.WORD,
-                                         font=('Arial', 10, 'bold' if is_header else 'normal'),
+                                         font=('Arial', 11, 'bold' if is_header else 'normal'),
                                          padx=5, pady=5)
                     
                     # Set background color
@@ -530,7 +530,7 @@ class ExamEngineWindow:
             flowchart_container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
             
             # Use canvas to draw flowchart graphically
-            canvas = tk.Canvas(flowchart_container, bg='white', height=400, width=650)
+            canvas = tk.Canvas(flowchart_container, bg='white', height=520, width=900)
             scrollbar_y = ttk.Scrollbar(flowchart_container, orient="vertical", command=canvas.yview)
             scrollbar_x = ttk.Scrollbar(flowchart_container, orient="horizontal", command=canvas.xview)
             
@@ -758,125 +758,101 @@ class ExamEngineWindow:
             pass
     
     def render_flowchart_graphically(self, canvas, flowchart_text):
-        """Render flowchart as graphical elements on canvas"""
-        # Simple flowchart parser and renderer
-        lines = flowchart_text.split('\n')
-        
+        """Render flowchart as graphical elements on canvas."""
+        lines = [line.strip() for line in flowchart_text.split('\n')]
+
         y_position = 30
-        x_center = 325  # Center of canvas
-        box_width = 200
-        box_height = 60
-        
-        # Track elements for connections
-        elements = []
-        
+        x_center = 450
+        default_box_width = 260
+        box_height = 66
+        arrow_gap = 22
+
+        def is_blank_text(value: str) -> bool:
+            return '[BLANK]' in value or bool(re.search(r'\[\d+\]', value))
+
+        def draw_box(x: int, y: int, label: str, width: int = default_box_width):
+            blank = is_blank_text(label)
+            fill_color = '#ffeb3b' if blank else '#e8f4f8'
+            canvas.create_rectangle(
+                x - width // 2,
+                y,
+                x + width // 2,
+                y + box_height,
+                fill=fill_color,
+                outline='#2c3e50',
+                width=2
+            )
+            canvas.create_text(
+                x,
+                y + box_height // 2,
+                text=label,
+                font=('Arial', 11, 'bold' if blank else 'normal'),
+                width=width - 24
+            )
+
+        def draw_vertical_arrow(x: int, y_start: int, y_end: int):
+            if y_end <= y_start:
+                return
+            canvas.create_line(x, y_start, x, y_end, arrow=tk.LAST, width=2, fill='#34495e')
+
+        def parse_horizontal_parts(line: str):
+            return [part.strip() for part in re.split(r'\s*(?:→|->)\s*', line) if part.strip()]
+
         for line in lines:
-            line = line.strip()
             if not line:
+                y_position += 18
+                continue
+
+            if line in {'↓', 'v', 'V'}:
+                draw_vertical_arrow(x_center, y_position, y_position + 28)
+                y_position += 36
+                continue
+
+            if re.search(r'(→|->)', line):
+                parts = parse_horizontal_parts(line)
+                if not parts:
+                    continue
+
+                spacing = 290
+                total_width = spacing * (len(parts) - 1)
+                start_x = max(180, x_center - total_width // 2)
+
+                previous_x = None
+                for idx, part in enumerate(parts):
+                    x_pos = start_x + idx * spacing
+                    draw_box(x_pos, y_position, part)
+
+                    if previous_x is not None:
+                        canvas.create_line(
+                            previous_x + default_box_width // 2,
+                            y_position + box_height // 2,
+                            x_pos - default_box_width // 2,
+                            y_position + box_height // 2,
+                            arrow=tk.LAST,
+                            width=2,
+                            fill='#34495e'
+                        )
+                    previous_x = x_pos
+
+                y_position += box_height + arrow_gap
+                continue
+
+            if line.startswith('Step') or line.startswith('step'):
+                draw_box(x_center, y_position, line)
+                draw_vertical_arrow(x_center, y_position + box_height, y_position + box_height + 26)
+                y_position += box_height + 34
+                continue
+
+            if any(ch in line for ch in ['┌', '└', '│', '─', '╱', '╲', '◆', '◇']):
+                canvas.create_text(x_center, y_position, text=line, font=('Courier', 11), anchor='n')
                 y_position += 20
                 continue
-            
-            # Detect flowchart elements
-            if '→' in line or '->' in line:
-                # Horizontal flow - draw boxes connected by arrows
-                parts = re.split(r'[→->]+', line)
-                x_pos = 50
-                prev_x = None
-                prev_y = None
-                
-                for part in parts:
-                    part = part.strip()
-                    if part:
-                        # Check if it's a blank
-                        is_blank = '[BLANK]' in part or bool(re.search(r'\[\d+\]', part))
-                        fill_color = '#ffeb3b' if is_blank else '#e8f4f8'
-                        
-                        # Draw box
-                        canvas.create_rectangle(x_pos, y_position, x_pos + 150, y_position + 50,
-                                              fill=fill_color, outline='#2c3e50', width=2)
-                        canvas.create_text(x_pos + 75, y_position + 25, text=part,
-                                         font=('Arial', 10, 'bold' if is_blank else 'normal'),
-                                         width=140)
-                        
-                        # Draw arrow from previous box
-                        if prev_x is not None:
-                            canvas.create_line(prev_x + 150, prev_y + 25, x_pos, y_position + 25,
-                                             arrow=tk.LAST, width=2, fill='#34495e')
-                        
-                        prev_x = x_pos
-                        prev_y = y_position
-                        x_pos += 200
-                
-                y_position += 80
-            
-            elif '↓' in line or 'v' in line or '↑' in line:
-                # Vertical connector
-                y_position += 30
-            
-            elif line.startswith('Step') or line.startswith('step'):
-                # Step box
-                is_blank = '[BLANK]' in line or bool(re.search(r'\[\d+\]', line))
-                fill_color = '#ffeb3b' if is_blank else '#e8f4f8'
-                
-                canvas.create_rectangle(x_center - box_width//2, y_position,
-                                      x_center + box_width//2, y_position + box_height,
-                                      fill=fill_color, outline='#2c3e50', width=2, tags='box')
-                canvas.create_text(x_center, y_position + box_height//2, text=line,
-                                 font=('Arial', 10, 'bold' if is_blank else 'normal'),
-                                 width=box_width - 20, tags='text')
-                
-                # Draw arrow down
-                canvas.create_line(x_center, y_position + box_height,
-                                 x_center, y_position + box_height + 30,
-                                 arrow=tk.LAST, width=2, fill='#34495e')
-                
-                y_position += box_height + 40
-            
-            elif '┌' in line or '└' in line or '│' in line or '─' in line:
-                # ASCII box drawing - render as is with Text widget
-                text_id = canvas.create_text(x_center, y_position, text=line,
-                                            font=('Courier', 9), anchor='n')
-                y_position += 15
-            
-            elif 'Decision' in line or '╱' in line or '╲' in line:
-                # Decision diamond
-                is_blank = '[BLANK]' in line or bool(re.search(r'\[\d+\]', line))
-                fill_color = '#ffeb3b' if is_blank else '#fff9e6'
-                
-                # Draw diamond
-                points = [
-                    x_center, y_position,  # top
-                    x_center + 80, y_position + 40,  # right
-                    x_center, y_position + 80,  # bottom
-                    x_center - 80, y_position + 40  # left
-                ]
-                canvas.create_polygon(points, fill=fill_color, outline='#2c3e50', width=2)
-                
-                # Extract text
-                text = re.sub(r'[╱╲\\\/]', '', line).strip()
-                canvas.create_text(x_center, y_position + 40, text=text,
-                                 font=('Arial', 9, 'bold' if is_blank else 'normal'),
-                                 width=120)
-                
-                y_position += 100
-            
-            else:
-                # Regular text/label
-                is_blank = '[BLANK]' in line or bool(re.search(r'\[\d+\]', line))
-                fill_color = '#ffeb3b' if is_blank else '#e8f4f8'
-                
-                canvas.create_rectangle(x_center - box_width//2, y_position,
-                                      x_center + box_width//2, y_position + box_height,
-                                      fill=fill_color, outline='#2c3e50', width=2)
-                canvas.create_text(x_center, y_position + box_height//2, text=line,
-                                 font=('Arial', 10, 'bold' if is_blank else 'normal'),
-                                 width=box_width - 20)
-                
-                y_position += box_height + 20
-        
-        # Update scroll region
+
+            draw_box(x_center, y_position, line)
+            y_position += box_height + 18
+
         canvas.configure(scrollregion=canvas.bbox("all"))
-    
+
     def canvas_click_handler(self, event, canvas):
         """Handle clicks on canvas for potential future highlighting"""
         # Placeholder for canvas text highlighting if needed

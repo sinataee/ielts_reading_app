@@ -401,16 +401,28 @@ class ContentEditorWindow:
                             # Create table grid
                             for r in range(rows):
                                 for c in range(cols):
-                                    cell_entry = tk.Entry(table_display_frame, width=15)
-                                    cell_entry.grid(row=r, column=c, padx=2, pady=2, sticky='ew')
+                                    cell_entry = tk.Text(
+                                        table_display_frame,
+                                        width=24,
+                                        height=3,
+                                        wrap=tk.WORD,
+                                        font=('Arial', 11),
+                                        relief=tk.SOLID,
+                                        bd=1,
+                                        padx=5,
+                                        pady=4
+                                    )
+                                    cell_entry.grid(row=r, column=c, padx=3, pady=3, sticky='nsew')
                                     
                                     # Pre-fill header row
                                     if r == 0:
-                                        cell_entry.insert(0, f"Header {c+1}")
+                                        cell_entry.insert("1.0", f"Header {c+1}")
                                     
                                     table_data['cells'][f"{r},{c}"] = cell_entry
                             
-                            # Configure column weights for expansion
+                            # Configure weights for easier expansion and editing
+                            for r in range(rows):
+                                table_display_frame.rowconfigure(r, weight=1)
                             for c in range(cols):
                                 table_display_frame.columnconfigure(c, weight=1)
                         
@@ -424,19 +436,25 @@ class ContentEditorWindow:
                         table_scroll_frame = tk.Frame(table_builder_frame)
                         table_scroll_frame.pack(fill=tk.BOTH, expand=True, pady=5)
                         
-                        table_canvas = tk.Canvas(table_scroll_frame, height=200)
+                        table_canvas = tk.Canvas(table_scroll_frame, height=320)
                         table_scrollbar = tk.Scrollbar(table_scroll_frame, orient="vertical", 
                                                       command=table_canvas.yview)
+                        table_scrollbar_x = tk.Scrollbar(table_scroll_frame, orient="horizontal",
+                                                         command=table_canvas.xview)
                         table_display_frame = tk.Frame(table_canvas)
                         
                         table_display_frame.bind("<Configure>", 
                                                 lambda e: table_canvas.configure(scrollregion=table_canvas.bbox("all")))
                         
                         table_canvas.create_window((0, 0), window=table_display_frame, anchor="nw")
-                        table_canvas.configure(yscrollcommand=table_scrollbar.set)
+                        table_canvas.configure(
+                            yscrollcommand=table_scrollbar.set,
+                            xscrollcommand=table_scrollbar_x.set
+                        )
                         
                         table_canvas.pack(side="left", fill="both", expand=True)
                         table_scrollbar.pack(side="right", fill="y")
+                        table_scrollbar_x.pack(side="bottom", fill="x")
                         
                         # Create initial table
                         create_table()
@@ -652,7 +670,7 @@ Step 3: Final outcome
                         for c in range(cols):
                             cell = table_info['cells'].get(f"{r},{c}")
                             if cell:
-                                row_data.append(cell.get())
+                                row_data.append(cell.get("1.0", "end-1c"))
                             else:
                                 row_data.append("")
                         table_content.append(row_data)
