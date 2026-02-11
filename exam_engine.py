@@ -162,6 +162,7 @@ class ExamEngineWindow:
         # Bind selection event for highlighting
         self.reading_text.bind("<<Selection>>", self.on_text_selection)
         self.reading_text.bind("<ButtonRelease-1>", self.on_text_selection)
+        self.reading_text.bind('<Key>', lambda e: 'break')
         
         # Configure highlight tags
         self.reading_text.tag_configure('highlight_yellow', background='#FFFF00')
@@ -260,7 +261,8 @@ class ExamEngineWindow:
             widget.insert('1.0', text, 'content')
         else:
             widget.insert('1.0', text)
-        widget.configure(state=tk.DISABLED)
+        # Keep widget selectable but read-only
+        widget.bind('<Key>', lambda e: 'break')
         widget.bind('<<Selection>>', lambda e, w=widget: self.show_highlight_menu(e, w))
         widget.bind('<ButtonRelease-1>', lambda e, w=widget: self.show_highlight_menu(e, w))
         widget.pack(anchor=tk.W, fill=tk.X, pady=padding[1])
@@ -297,7 +299,6 @@ class ExamEngineWindow:
                 self.reading_text.tag_configure(f'para_body_{i}', font=('Arial', 12),
                                                spacing1=2, spacing2=2, spacing3=5)
         
-        self.reading_text.config(state=tk.DISABLED)
     
     def load_questions(self):
         """Load questions into right pane"""
@@ -518,6 +519,8 @@ class ExamEngineWindow:
             
             # Enable text selection and bind highlighting
             text_widget.bind("<<Selection>>", lambda e: self.show_highlight_menu(e, text_widget))
+            text_widget.bind("<ButtonRelease-1>", lambda e: self.show_highlight_menu(e, text_widget))
+            text_widget.bind('<Key>', lambda e: 'break')
             self.bind_mousewheel_scrolling(text_widget)
         
         elif 'tableData' in data:
@@ -547,8 +550,9 @@ class ExamEngineWindow:
                 for c in range(cols):
                     cell_text = content[r][c] if r < len(content) and c < len(content[r]) else ""
                     
-                    # Determine if this cell contains a blank
-                    is_blank = '[BLANK]' in cell_text or bool(re.search(r'\[\d+\]', cell_text))
+                    # Only mark full-cell blanks (not normal text that happens to include [1], [2], etc.)
+                    normalized_text = cell_text.strip()
+                    is_blank = normalized_text in {'[BLANK]'} or bool(re.fullmatch(r'\[\d+\]', normalized_text))
                     is_header = (r == 0)
                     
                     # Use Text widget instead of Label to support highlighting
@@ -566,16 +570,24 @@ class ExamEngineWindow:
                         cell_widget.configure(bg='white')
                     
                     cell_widget.insert("1.0", cell_text)
-                    cell_widget.configure(state=tk.DISABLED)  # Make read-only but selectable
+
+                    # Highlight inline blank tokens without coloring whole cell
+                    for match in re.finditer(r'\[BLANK\]|\[\d+\]', cell_text):
+                        start_idx = f"1.0+{match.start()}c"
+                        end_idx = f"1.0+{match.end()}c"
+                        cell_widget.tag_add('blank_inline', start_idx, end_idx)
                     
                     # Configure highlight tags
                     cell_widget.tag_configure('highlight_yellow', background='#FFFF00')
                     cell_widget.tag_configure('highlight_green', background='#90EE90')
                     cell_widget.tag_configure('highlight_blue', background='#ADD8E6')
                     cell_widget.tag_configure('highlight_pink', background='#FFB6C1')
+                    cell_widget.tag_configure('blank_inline', background='#ffeb3b')
                     
-                    # Enable highlighting
+                    # Enable highlighting and keep read-only
+                    cell_widget.bind('<Key>', lambda e: 'break')
                     cell_widget.bind("<<Selection>>", lambda e, w=cell_widget: self.show_highlight_menu(e, w))
+                    cell_widget.bind("<ButtonRelease-1>", lambda e, w=cell_widget: self.show_highlight_menu(e, w))
                     
                     cell_widget.grid(row=r, column=c, sticky='nsew', padx=1, pady=1)
             
@@ -652,7 +664,7 @@ class ExamEngineWindow:
                 diagram_text = tk.Text(diagram_frame, height=8, width=70, wrap=tk.WORD,
                                        font=('Arial', 10), bg='white', padx=10, pady=10)
                 diagram_text.insert("1.0", diagram_data)
-                diagram_text.configure(state=tk.DISABLED)
+                diagram_text.bind('<Key>', lambda e: 'break')
 
                 # Configure highlight tags
                 diagram_text.tag_configure('highlight_yellow', background='#FFFF00')
@@ -662,6 +674,7 @@ class ExamEngineWindow:
 
                 # Enable highlighting
                 diagram_text.bind("<<Selection>>", lambda e: self.show_highlight_menu(e, diagram_text))
+                diagram_text.bind("<ButtonRelease-1>", lambda e: self.show_highlight_menu(e, diagram_text))
                 diagram_text.pack(fill=tk.BOTH, expand=True)
                 self.bind_mousewheel_scrolling(diagram_text)
         
@@ -675,9 +688,6 @@ class ExamEngineWindow:
     
     def on_text_selection(self, event):
         """Handle text selection for highlighting"""
-        if not self.exam_started:
-            return
-        
         try:
             selection = self.reading_text.get("sel.first", "sel.last")
             if selection and len(selection.strip()) > 0:
@@ -686,7 +696,8 @@ class ExamEngineWindow:
                     self.highlight_toolbar.destroy()
                 
                 # Get selection coordinates
-                x, y = event.x_root, event.y_root
+                x = getattr(event, 'x_root', self.root.winfo_pointerx())
+                y = getattr(event, 'y_root', self.root.winfo_pointery())
                 
                 self.highlight_toolbar = tk.Toplevel(self.root)
                 self.highlight_toolbar.wm_overrideredirect(True)
@@ -945,7 +956,6 @@ class ExamEngineWindow:
         self.end_btn.config(state=tk.DISABLED)
         
         # Lock UI
-        self.reading_text.config(state=tk.DISABLED)
         for widget in self.answer_widgets.values():
             if isinstance(widget, tk.Entry):
                 widget.config(state=tk.DISABLED)
