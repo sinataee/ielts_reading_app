@@ -172,15 +172,25 @@ class ExamEngineWindow:
         # Right pane - Questions
         paned.add(right_frame, minsize=450, width=half_width, stretch='always')
 
-        def keep_balanced_panes(event=None):
+        def keep_balanced_panes():
             try:
                 total = max(900, self.root.winfo_width())
+                if abs(total - self._last_pane_width) < 8:
+                    return
+                self._last_pane_width = total
                 paned.sash_place(0, total // 2, 1)
             except tk.TclError:
                 pass
 
+        def schedule_balance(event=None):
+            if event is not None and event.widget is not self.root:
+                return
+            if self._pane_balance_job:
+                self.root.after_cancel(self._pane_balance_job)
+            self._pane_balance_job = self.root.after(80, keep_balanced_panes)
+
         self.root.after_idle(keep_balanced_panes)
-        self.root.bind('<Configure>', keep_balanced_panes, add='+')
+        self.root.bind('<Configure>', schedule_balance, add='+')
         
         tk.Label(right_frame, text="Questions", font=('Arial', 14, 'bold'),
                 bg='#34495e', fg='white').pack(fill=tk.X)
@@ -215,6 +225,8 @@ class ExamEngineWindow:
         
         # Highlight toolbar (initially hidden)
         self.highlight_toolbar = None
+        self._pane_balance_job = None
+        self._last_pane_width = 0
 
     def bind_mousewheel_scrolling(self, widget):
         """Enable cross-platform mouse-wheel scrolling for canvas/text widgets."""
@@ -773,24 +785,24 @@ class ExamEngineWindow:
     def show_highlight_menu(self, event, text_widget):
         """Show highlighting menu for text widgets in tables/flowcharts"""
         try:
-            # Check if there's a selection
-            text_widget.tag_ranges("sel")
-            
-            # Create popup menu
+            selection_ranges = text_widget.tag_ranges("sel")
+            if not selection_ranges:
+                return
+
             if self.highlight_toolbar:
                 self.highlight_toolbar.destroy()
-            
-            x, y = event.x_root, event.y_root
-            
+
+            x = getattr(event, 'x_root', self.root.winfo_pointerx())
+            y = getattr(event, 'y_root', self.root.winfo_pointery())
+
             self.highlight_toolbar = tk.Toplevel(self.root)
             self.highlight_toolbar.wm_overrideredirect(True)
             self.highlight_toolbar.geometry(f"+{x}+{y-30}")
-            
+
             HighlightToolbar(self.highlight_toolbar, lambda color: self.apply_text_highlight(text_widget, color))
         except tk.TclError:
-            # No selection
             pass
-    
+
     def apply_text_highlight(self, text_widget, color: Optional[str]):
         """Apply highlight to selected text in a Text widget"""
         try:
