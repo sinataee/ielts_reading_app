@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 import threading
 import re
+import os
 from models import (
     ReadingPackage, AnswerRecord, HighlightRecord, QuestionType
 )
@@ -68,6 +69,7 @@ class ExamEngineWindow:
         
         # Answer widgets
         self.answer_widgets: Dict[str, tk.Widget] = {}
+        self._diagram_images: List[tk.PhotoImage] = []
         
         if package_path:
             self.load_package(package_path)
@@ -185,6 +187,9 @@ class ExamEngineWindow:
         
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
+
+        # Enable mouse wheel scrolling in the question panel
+        self.bind_mousewheel_scrolling(canvas)
         
         # Load content
         self.load_reading_content()
@@ -192,6 +197,20 @@ class ExamEngineWindow:
         
         # Highlight toolbar (initially hidden)
         self.highlight_toolbar = None
+
+    def bind_mousewheel_scrolling(self, widget):
+        """Enable cross-platform mouse-wheel scrolling for canvas/text widgets."""
+        def _on_mousewheel(event):
+            if hasattr(event, "delta") and event.delta:
+                widget.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            elif event.num == 4:
+                widget.yview_scroll(-1, "units")
+            elif event.num == 5:
+                widget.yview_scroll(1, "units")
+
+        widget.bind_all("<MouseWheel>", _on_mousewheel, add="+")
+        widget.bind_all("<Button-4>", _on_mousewheel, add="+")
+        widget.bind_all("<Button-5>", _on_mousewheel, add="+")
     
     def load_reading_content(self):
         """Load reading content into left pane"""
@@ -434,6 +453,7 @@ class ExamEngineWindow:
             
             # Enable text selection and bind highlighting
             text_widget.bind("<<Selection>>", lambda e: self.show_highlight_menu(e, text_widget))
+            self.bind_mousewheel_scrolling(text_widget)
         
         elif 'tableData' in data:
             tk.Label(frame, text="📊 TABLE - Complete the gaps below:", 
@@ -499,6 +519,7 @@ class ExamEngineWindow:
             
             table_canvas.pack(side="left", fill="both", expand=True, padx=10, pady=10)
             table_scrollbar.pack(side="right", fill="y")
+            self.bind_mousewheel_scrolling(table_canvas)
         
         elif 'flowchartData' in data:
             tk.Label(frame, text="🔄 FLOW-CHART - Complete the gaps below:", 
@@ -522,6 +543,7 @@ class ExamEngineWindow:
             canvas.pack(side="left", fill="both", expand=True, padx=10, pady=10)
             scrollbar_y.pack(side="right", fill="y")
             scrollbar_x.pack(side="bottom", fill="x")
+            self.bind_mousewheel_scrolling(canvas)
             
             # Enable canvas selection for highlighting
             canvas.bind("<Button-1>", lambda e: self.canvas_click_handler(e, canvas))
@@ -533,21 +555,48 @@ class ExamEngineWindow:
             diagram_frame = tk.Frame(frame, bg='white', relief=tk.SOLID, bd=2)
             diagram_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
             
-            # Use Text widget for diagram to allow highlighting
-            diagram_text = tk.Text(diagram_frame, height=8, width=70, wrap=tk.WORD,
-                                  font=('Arial', 10), bg='white', padx=10, pady=10)
-            diagram_text.insert("1.0", data['diagramImage'])
-            diagram_text.configure(state=tk.DISABLED)
-            
-            # Configure highlight tags
-            diagram_text.tag_configure('highlight_yellow', background='#FFFF00')
-            diagram_text.tag_configure('highlight_green', background='#90EE90')
-            diagram_text.tag_configure('highlight_blue', background='#ADD8E6')
-            diagram_text.tag_configure('highlight_pink', background='#FFB6C1')
-            
-            # Enable highlighting
-            diagram_text.bind("<<Selection>>", lambda e: self.show_highlight_menu(e, diagram_text))
-            diagram_text.pack(fill=tk.BOTH, expand=True)
+            diagram_data = str(data['diagramImage']).strip()
+
+            # If this is an image path, render the image. Otherwise render rich text.
+            lower_value = diagram_data.lower()
+            is_image_path = (
+                os.path.exists(diagram_data)
+                and lower_value.endswith((".png", ".gif", ".ppm", ".pgm"))
+            )
+
+            if is_image_path:
+                image_widget = tk.Label(diagram_frame, bg='white')
+                image_widget.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+                try:
+                    image = tk.PhotoImage(file=diagram_data)
+                    self._diagram_images.append(image)
+                    image_widget.config(image=image)
+                except tk.TclError:
+                    image_widget.config(text=f"Unable to load image: {diagram_data}", font=('Arial', 10), anchor='w')
+
+                tk.Label(
+                    diagram_frame,
+                    text=f"Image source: {diagram_data}",
+                    bg='white',
+                    fg='#555555',
+                    font=('Arial', 9, 'italic')
+                ).pack(anchor=tk.W, padx=10, pady=(0, 8))
+            else:
+                diagram_text = tk.Text(diagram_frame, height=8, width=70, wrap=tk.WORD,
+                                       font=('Arial', 10), bg='white', padx=10, pady=10)
+                diagram_text.insert("1.0", diagram_data)
+                diagram_text.configure(state=tk.DISABLED)
+
+                # Configure highlight tags
+                diagram_text.tag_configure('highlight_yellow', background='#FFFF00')
+                diagram_text.tag_configure('highlight_green', background='#90EE90')
+                diagram_text.tag_configure('highlight_blue', background='#ADD8E6')
+                diagram_text.tag_configure('highlight_pink', background='#FFB6C1')
+
+                # Enable highlighting
+                diagram_text.bind("<<Selection>>", lambda e: self.show_highlight_menu(e, diagram_text))
+                diagram_text.pack(fill=tk.BOTH, expand=True)
+                self.bind_mousewheel_scrolling(diagram_text)
         
         return options
     
