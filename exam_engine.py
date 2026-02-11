@@ -15,25 +15,43 @@ from models import (
 
 
 class HighlightToolbar(tk.Frame):
-    """Toolbar for text highlighting"""
+    """Tiny toolbar for text highlighting"""
     
     def __init__(self, parent, callback):
-        super().__init__(parent, bg='lightgray', relief=tk.RAISED, bd=2)
+        super().__init__(parent, bg='#f4f4f4', relief=tk.RAISED, bd=1)
         self.callback = callback
-        
+
         colors = [
-            ('Yellow', '#FFFF00'),
-            ('Green', '#90EE90'),
-            ('Blue', '#ADD8E6'),
-            ('Pink', '#FFB6C1')
+            ('Y', '#FFFF00'),
+            ('G', '#90EE90'),
+            ('B', '#ADD8E6'),
+            ('P', '#FFB6C1')
         ]
-        
-        for color_name, color_code in colors:
-            btn = tk.Button(self, text=color_name, bg=color_code, 
-                          command=lambda c=color_code: self.callback(c))
-            btn.pack(side=tk.LEFT, padx=2)
-        
-        tk.Button(self, text="Remove", command=lambda: self.callback(None)).pack(side=tk.LEFT, padx=2)
+
+        for short_name, color_code in colors:
+            btn = tk.Button(
+                self,
+                text=short_name,
+                bg=color_code,
+                activebackground=color_code,
+                width=2,
+                height=1,
+                bd=1,
+                font=('Arial', 8, 'bold'),
+                command=lambda c=color_code: self.callback(c)
+            )
+            btn.pack(side=tk.LEFT, padx=1, pady=1)
+
+        tk.Button(
+            self,
+            text='✕',
+            width=2,
+            height=1,
+            bd=1,
+            font=('Arial', 8, 'bold'),
+            command=lambda: self.callback(None)
+        ).pack(side=tk.LEFT, padx=(2, 1), pady=1)
+
 
 
 class ExamEngineWindow:
@@ -701,9 +719,11 @@ class ExamEngineWindow:
                 
                 self.highlight_toolbar = tk.Toplevel(self.root)
                 self.highlight_toolbar.wm_overrideredirect(True)
+                self.highlight_toolbar.attributes('-topmost', True)
                 self.highlight_toolbar.geometry(f"+{x}+{y-30}")
                 
-                HighlightToolbar(self.highlight_toolbar, self.apply_highlight)
+                toolbar = HighlightToolbar(self.highlight_toolbar, self.apply_highlight)
+                toolbar.pack(fill=tk.BOTH, expand=True)
         except tk.TclError:
             pass
     
@@ -808,9 +828,11 @@ class ExamEngineWindow:
 
             self.highlight_toolbar = tk.Toplevel(self.root)
             self.highlight_toolbar.wm_overrideredirect(True)
+            self.highlight_toolbar.attributes('-topmost', True)
             self.highlight_toolbar.geometry(f"+{x}+{y-30}")
 
-            HighlightToolbar(self.highlight_toolbar, lambda color: self.apply_text_highlight(text_widget, color))
+            toolbar = HighlightToolbar(self.highlight_toolbar, lambda color: self.apply_text_highlight(text_widget, color))
+            toolbar.pack(fill=tk.BOTH, expand=True)
         except tk.TclError:
             pass
 
