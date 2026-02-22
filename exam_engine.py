@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import threading
 import re
 import os
+import json
 from models import (
     ReadingPackage, AnswerRecord, HighlightRecord, QuestionType
 )
@@ -88,6 +89,8 @@ class ExamEngineWindow:
         # Answer widgets
         self.answer_widgets: Dict[str, tk.Widget] = {}
         self._diagram_images: List[tk.PhotoImage] = []
+        self._diagram_highlights: Dict[int, List[int]] = {}
+        self._diagram_selection = None
         
         if package_path:
             self.load_package(package_path)
@@ -250,12 +253,18 @@ class ExamEngineWindow:
     def bind_mousewheel_scrolling(self, widget):
         """Enable cross-platform mouse-wheel scrolling for canvas/text widgets."""
         def _on_mousewheel(event):
-            if hasattr(event, "delta") and event.delta:
-                widget.yview_scroll(int(-1 * (event.delta / 120)), "units")
-            elif event.num == 4:
-                widget.yview_scroll(-1, "units")
-            elif event.num == 5:
-                widget.yview_scroll(1, "units")
+            try:
+                if not widget.winfo_exists():
+                    return
+                if hasattr(event, "delta") and event.delta:
+                    widget.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                elif getattr(event, 'num', None) == 4:
+                    widget.yview_scroll(-1, "units")
+                elif getattr(event, 'num', None) == 5:
+                    widget.yview_scroll(1, "units")
+            except tk.TclError:
+                # Widget can be destroyed while global wheel bindings still fire.
+                return
 
         widget.bind_all("<MouseWheel>", _on_mousewheel, add="+")
         widget.bind_all("<Button-4>", _on_mousewheel, add="+")
@@ -703,31 +712,123 @@ class ExamEngineWindow:
             
             diagram_data = str(data['diagramImage']).strip()
 
-            # If this is an image path, render the image. Otherwise render rich text.
-            lower_value = diagram_data.lower()
-            is_image_path = (
-                os.path.exists(diagram_data)
-                and lower_value.endswith((".png", ".gif", ".ppm", ".pgm"))
-            )
+            # If this is a saved diagram-editor payload, render it as drawable canvas.
+            if diagram_data.startswith('__DIAGRAM_EDITOR__'):
+                canvas_payload = diagram_data.replace('__DIAGRAM_EDITOR__', '', 1)
+                diagram_canvas = tk.Canvas(diagram_frame, bg='white', highlightthickness=0)
+                diagram_canvas.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
-            if is_image_path:
-                image_widget = tk.Label(diagram_frame, bg='white')
-                image_widget.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
                 try:
-                    image = tk.PhotoImage(file=diagram_data)
-                    self._diagram_images.append(image)
-                    image_widget.config(image=image)
-                except tk.TclError:
-                    image_widget.config(text=f"Unable to load image: {diagram_data}", font=('Arial', 10), anchor='w')
+                    payload = json.loads(canvas_payload)
+                    canvas_width = int(payload.get('width', 900))
+                    canvas_height = int(payload.get('height', 550))
+                    diagram_canvas.configure(width=canvas_width, height=canvas_height, scrollregion=(0, 0, canvas_width, canvas_height))
+
+                    bg_path = payload.get('background_path')
+                    if bg_path and os.path.exists(bg_path):
+                        try:
+                            bg_img = tk.PhotoImage(file=bg_path)
+                            self._diagram_images.append(bg_img)
+                            diagram_canvas.create_image(0, 0, image=bg_img, anchor='nw')
+                        except tk.TclError:
+                            pass
+
+                    for element in payload.get('elements', []):
+                        kind = element.get('kind')
+                        if kind == 'text':
+                            diagram_canvas.create_text(
+                                element.get('x', 0),
+                                element.get('y', 0),
+                                text=element.get('text', ''),
+                                anchor='nw',
+                                font=('Arial', 12)
+                            )
+                        elif kind == 'pen':
+                            points = element.get('points', [])
+                            if len(points) > 1:
+                                flat = [coord for pt in points for coord in pt]
+                                diagram_canvas.create_line(
+                                    *flat,
+                                    fill=element.get('color', '#000000'),
+                                    width=element.get('width', 2),
+                                    smooth=True
+                                )
+                        elif kind == 'line':
+                            coords = element.get('coords', [0, 0, 0, 0])
+                            diagram_canvas.create_line(
+                                *coords,
+                                fill=element.get('color', '#000000'),
+                                width=element.get('width', 2)
+                            )
+                        elif kind == 'rect':
+                            coords = element.get('coords', [0, 0, 0, 0])
+                            diagram_canvas.create_rectangle(
+                                *coords,
+                                outline=element.get('color', '#000000'),
+                                width=element.get('width', 2)
+                            )
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    diagram_canvas.create_text(10, 10, anchor='nw', text='Unable to render diagram payload', font=('Arial', 10))
+
+                diagram_canvas.bind('<ButtonPress-1>', lambda e, c=diagram_canvas: self.start_diagram_selection(e, c))
+                diagram_canvas.bind('<B1-Motion>', lambda e, c=diagram_canvas: self.update_diagram_selection(e, c))
+                diagram_canvas.bind('<ButtonRelease-1>', lambda e, c=diagram_canvas: self.finish_diagram_selection(e, c))
 
                 tk.Label(
                     diagram_frame,
-                    text=f"Image source: {diagram_data}",
+                    text='Diagram editor content (drag to highlight region)',
                     bg='white',
                     fg='#555555',
                     font=('Arial', 9, 'italic')
                 ).pack(anchor=tk.W, padx=10, pady=(0, 8))
             else:
+                # If this is an image path, render the image. Otherwise render rich text.
+                lower_value = diagram_data.lower()
+                is_image_path = (
+                    os.path.exists(diagram_data)
+                    and lower_value.endswith((".png", ".gif", ".ppm", ".pgm"))
+                )
+
+                if is_image_path:
+                    image_canvas = tk.Canvas(diagram_frame, bg='white', highlightthickness=0)
+                    image_canvas.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+                    try:
+                        image = tk.PhotoImage(file=diagram_data)
+                        self._diagram_images.append(image)
+                        image_canvas.configure(width=image.width(), height=image.height(), scrollregion=(0, 0, image.width(), image.height()))
+                        image_canvas.create_image(0, 0, image=image, anchor='nw')
+
+                        # Enable rectangle highlighting on diagrams (drag to select region)
+                        image_canvas.bind('<ButtonPress-1>', lambda e, c=image_canvas: self.start_diagram_selection(e, c))
+                        image_canvas.bind('<B1-Motion>', lambda e, c=image_canvas: self.update_diagram_selection(e, c))
+                        image_canvas.bind('<ButtonRelease-1>', lambda e, c=image_canvas: self.finish_diagram_selection(e, c))
+                    except tk.TclError:
+                        image_canvas.create_text(10, 10, anchor='nw', text=f"Unable to load image: {diagram_data}", font=('Arial', 10))
+
+                    tk.Label(
+                        diagram_frame,
+                        text=f"Image source: {diagram_data} (drag on image to highlight region)",
+                        bg='white',
+                        fg='#555555',
+                        font=('Arial', 9, 'italic')
+                    ).pack(anchor=tk.W, padx=10, pady=(0, 8))
+                else:
+                    diagram_text = tk.Text(diagram_frame, height=8, width=70, wrap=tk.WORD,
+                                           font=('Arial', 10), bg='white', padx=10, pady=10)
+                    diagram_text.insert("1.0", diagram_data)
+                    diagram_text.bind('<Key>', lambda e: 'break')
+
+                    # Configure highlight tags
+                    diagram_text.tag_configure('highlight_yellow', background='#FFFF00')
+                    diagram_text.tag_configure('highlight_green', background='#90EE90')
+                    diagram_text.tag_configure('highlight_blue', background='#ADD8E6')
+                    diagram_text.tag_configure('highlight_pink', background='#FFB6C1')
+
+                    # Enable highlighting
+                    diagram_text.bind("<<Selection>>", lambda e: self.show_highlight_menu(e, diagram_text))
+                    diagram_text.bind("<ButtonRelease-1>", lambda e: self.show_highlight_menu(e, diagram_text))
+                    diagram_text.pack(fill=tk.BOTH, expand=True)
+                    self.bind_mousewheel_scrolling(diagram_text)
                 diagram_text = tk.Text(diagram_frame, height=8, width=70, wrap=tk.WORD,
                                        font=('Arial', 10), bg='white', padx=10, pady=10)
                 diagram_text.insert("1.0", diagram_data)
@@ -906,6 +1007,75 @@ class ExamEngineWindow:
         except tk.TclError:
             pass
     
+    def start_diagram_selection(self, event, canvas):
+        """Start selecting a diagram region for highlighting."""
+        x, y = canvas.canvasx(event.x), canvas.canvasy(event.y)
+        rect_id = canvas.create_rectangle(x, y, x, y, outline='#555555', width=2, dash=(3, 2))
+        self._diagram_selection = {
+            'canvas': canvas,
+            'start_x': x,
+            'start_y': y,
+            'temp_rect': rect_id
+        }
+
+    def update_diagram_selection(self, event, canvas):
+        """Update drag-selection rectangle on diagram."""
+        if not self._diagram_selection or self._diagram_selection.get('canvas') is not canvas:
+            return
+        x, y = canvas.canvasx(event.x), canvas.canvasy(event.y)
+        rect_id = self._diagram_selection['temp_rect']
+        canvas.coords(rect_id, self._diagram_selection['start_x'], self._diagram_selection['start_y'], x, y)
+
+    def finish_diagram_selection(self, event, canvas):
+        """Finish selection and show tiny color toolbar for diagram highlight."""
+        if not self._diagram_selection or self._diagram_selection.get('canvas') is not canvas:
+            return
+
+        x1, y1 = self._diagram_selection['start_x'], self._diagram_selection['start_y']
+        x2, y2 = canvas.canvasx(event.x), canvas.canvasy(event.y)
+        if abs(x2 - x1) < 5 or abs(y2 - y1) < 5:
+            canvas.delete(self._diagram_selection['temp_rect'])
+            self._diagram_selection = None
+            return
+
+        if self.highlight_toolbar:
+            self.highlight_toolbar.destroy()
+
+        screen_x = getattr(event, 'x_root', self.root.winfo_pointerx())
+        screen_y = getattr(event, 'y_root', self.root.winfo_pointery())
+        self.highlight_toolbar = tk.Toplevel(self.root)
+        self.highlight_toolbar.wm_overrideredirect(True)
+        self.highlight_toolbar.attributes('-topmost', True)
+        self.highlight_toolbar.geometry(f"+{screen_x}+{screen_y-30}")
+
+        toolbar = HighlightToolbar(self.highlight_toolbar, lambda color: self.apply_diagram_highlight(color))
+        toolbar.pack(fill=tk.BOTH, expand=True)
+
+    def apply_diagram_highlight(self, color: Optional[str]):
+        """Apply/remove highlight to selected diagram region."""
+        if not self._diagram_selection:
+            return
+
+        canvas = self._diagram_selection['canvas']
+        temp_rect = self._diagram_selection['temp_rect']
+        x1, y1, x2, y2 = canvas.coords(temp_rect)
+        canvas.delete(temp_rect)
+
+        if color:
+            highlight_id = canvas.create_rectangle(
+                x1, y1, x2, y2,
+                fill=color,
+                outline='',
+                stipple='gray25'
+            )
+            key = id(canvas)
+            self._diagram_highlights.setdefault(key, []).append(highlight_id)
+        
+        if self.highlight_toolbar:
+            self.highlight_toolbar.destroy()
+            self.highlight_toolbar = None
+        self._diagram_selection = None
+
     def render_flowchart_graphically(self, canvas, flowchart_text):
         """Render flowchart as graphical elements on canvas."""
         lines = [line.strip() for line in flowchart_text.split('\n')]
