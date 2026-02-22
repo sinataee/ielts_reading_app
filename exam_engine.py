@@ -438,12 +438,29 @@ class ExamEngineWindow:
         elif question_type in [QuestionType.TYPE2, QuestionType.TYPE3]:  # True/False/Not Given or Yes/No/Not Given
             var = tk.StringVar()
             frame = tk.Frame(parent)
-            frame.pack(anchor=tk.W, padx=20, pady=5)
-            
+            frame.pack(anchor=tk.W, fill=tk.X, padx=20, pady=5)
+
+            def add_selectable_radio_row(option_text):
+                row = tk.Frame(frame)
+                row.pack(anchor=tk.W, fill=tk.X, pady=1)
+                tk.Radiobutton(
+                    row,
+                    text="",
+                    variable=var,
+                    value=option_text,
+                    command=lambda: self.record_answer(question_id, var.get())
+                ).pack(side=tk.LEFT)
+                self._make_selectable_text(
+                    row,
+                    option_text,
+                    font=('Arial', 10),
+                    wraplength=420,
+                    justify=tk.LEFT
+                )
+
             options = ['TRUE', 'FALSE', 'NOT GIVEN'] if question_type == QuestionType.TYPE2 else ['YES', 'NO', 'NOT GIVEN']
             for option in options:
-                tk.Radiobutton(frame, text=option, variable=var, value=option,
-                             command=lambda: self.record_answer(question_id, var.get())).pack(anchor=tk.W)
+                add_selectable_radio_row(option)
             return var
         
         elif question_type in [QuestionType.TYPE4, QuestionType.TYPE5, 
@@ -480,9 +497,13 @@ class ExamEngineWindow:
             list_frame.pack(fill=tk.X, padx=5, pady=5)
             
             for item in data['infoList']:
-                tk.Label(list_frame, text=f"  {item}", justify=tk.LEFT, 
-                        wraplength=600, font=('Arial', 10), bg='white',
-                        pady=3).pack(anchor=tk.W, padx=10, pady=2)
+                self._make_selectable_text(
+                    list_frame,
+                    f"  {item}",
+                    font=('Arial', 10),
+                    wraplength=620,
+                    justify=tk.LEFT
+                )
                 options.append(item.split('.')[0].strip() if '.' in item else item[:10])
         
         elif 'headingList' in data:
@@ -493,9 +514,13 @@ class ExamEngineWindow:
             list_frame.pack(fill=tk.X, padx=5, pady=5)
             
             for i, heading in enumerate(data['headingList']):
-                tk.Label(list_frame, text=f"  {heading}", justify=tk.LEFT, 
-                        wraplength=600, font=('Arial', 10), bg='white',
-                        pady=3).pack(anchor=tk.W, padx=10, pady=2)
+                self._make_selectable_text(
+                    list_frame,
+                    f"  {heading}",
+                    font=('Arial', 10),
+                    wraplength=620,
+                    justify=tk.LEFT
+                )
                 options.append(heading.split('.')[0].strip() if '.' in heading else heading[:20])
         
         elif 'featureList' in data:
@@ -506,9 +531,13 @@ class ExamEngineWindow:
             list_frame.pack(fill=tk.X, padx=5, pady=5)
             
             for item in data['featureList']:
-                tk.Label(list_frame, text=f"  {item}", justify=tk.LEFT, 
-                        wraplength=600, font=('Arial', 10), bg='white',
-                        pady=3).pack(anchor=tk.W, padx=10, pady=2)
+                self._make_selectable_text(
+                    list_frame,
+                    f"  {item}",
+                    font=('Arial', 10),
+                    wraplength=620,
+                    justify=tk.LEFT
+                )
                 options.append(item.split('.')[0].strip() if '.' in item else item[:15])
         
         elif 'sentenceEndingList' in data:
