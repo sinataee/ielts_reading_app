@@ -730,11 +730,18 @@ Step 3: Final outcome
                                                                            fill=painter_data['line_color'],
                                                                            width=painter_data['line_width'].get(),
                                                                            smooth=True)
-                        elif tool in ('line', 'rect'):
-                            create_fn = canvas.create_line if tool == 'line' else canvas.create_rectangle
-                            painter_data['temp_item'] = create_fn(event.x, event.y, event.x, event.y,
-                                                                  outline=painter_data['line_color'],
-                                                                  width=painter_data['line_width'].get())
+                        elif tool == 'line':
+                            painter_data['temp_item'] = canvas.create_line(
+                                event.x, event.y, event.x, event.y,
+                                fill=painter_data['line_color'],
+                                width=painter_data['line_width'].get()
+                            )
+                        elif tool == 'rect':
+                            painter_data['temp_item'] = canvas.create_rectangle(
+                                event.x, event.y, event.x, event.y,
+                                outline=painter_data['line_color'],
+                                width=painter_data['line_width'].get()
+                            )
 
                     def on_drag(event):
                         tool = painter_data['active_tool'].get()

@@ -253,12 +253,18 @@ class ExamEngineWindow:
     def bind_mousewheel_scrolling(self, widget):
         """Enable cross-platform mouse-wheel scrolling for canvas/text widgets."""
         def _on_mousewheel(event):
-            if hasattr(event, "delta") and event.delta:
-                widget.yview_scroll(int(-1 * (event.delta / 120)), "units")
-            elif event.num == 4:
-                widget.yview_scroll(-1, "units")
-            elif event.num == 5:
-                widget.yview_scroll(1, "units")
+            try:
+                if not widget.winfo_exists():
+                    return
+                if hasattr(event, "delta") and event.delta:
+                    widget.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                elif getattr(event, 'num', None) == 4:
+                    widget.yview_scroll(-1, "units")
+                elif getattr(event, 'num', None) == 5:
+                    widget.yview_scroll(1, "units")
+            except tk.TclError:
+                # Widget can be destroyed while global wheel bindings still fire.
+                return
 
         widget.bind_all("<MouseWheel>", _on_mousewheel, add="+")
         widget.bind_all("<Button-4>", _on_mousewheel, add="+")
