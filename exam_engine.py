@@ -829,6 +829,22 @@ class ExamEngineWindow:
                     diagram_text.bind("<ButtonRelease-1>", lambda e: self.show_highlight_menu(e, diagram_text))
                     diagram_text.pack(fill=tk.BOTH, expand=True)
                     self.bind_mousewheel_scrolling(diagram_text)
+                diagram_text = tk.Text(diagram_frame, height=8, width=70, wrap=tk.WORD,
+                                       font=('Arial', 10), bg='white', padx=10, pady=10)
+                diagram_text.insert("1.0", diagram_data)
+                diagram_text.bind('<Key>', lambda e: 'break')
+
+                # Configure highlight tags
+                diagram_text.tag_configure('highlight_yellow', background='#FFFF00')
+                diagram_text.tag_configure('highlight_green', background='#90EE90')
+                diagram_text.tag_configure('highlight_blue', background='#ADD8E6')
+                diagram_text.tag_configure('highlight_pink', background='#FFB6C1')
+
+                # Enable highlighting
+                diagram_text.bind("<<Selection>>", lambda e: self.show_highlight_menu(e, diagram_text))
+                diagram_text.bind("<ButtonRelease-1>", lambda e: self.show_highlight_menu(e, diagram_text))
+                diagram_text.pack(fill=tk.BOTH, expand=True)
+                self.bind_mousewheel_scrolling(diagram_text)
         
         return options
     
