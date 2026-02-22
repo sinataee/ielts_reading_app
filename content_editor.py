@@ -3,9 +3,10 @@ Content Editor Module
 Provides tools for creating, editing, and storing complete IELTS reading packages
 """
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, filedialog, font as tkfont
+from tkinter import ttk, scrolledtext, messagebox, filedialog, simpledialog, font as tkfont
 from typing import Optional
 import uuid
+import json
 from models import (
     ReadingPackage, ReadingContent, Paragraph, QuestionGroup,
     Question, QuestionType, AdditionalInput
@@ -626,11 +627,181 @@ Step 3: Final outcome
                 update_type9_input()  # Initialize
                 
             elif selected_type == QuestionType.TYPE10.value:  # Diagram label completion
-                tk.Label(additional_frame, text="Diagram Description/Image Path:", 
-                        font=('Arial', 9)).pack(anchor=tk.W, pady=5)
-                diagram_text = scrolledtext.ScrolledText(additional_frame, height=4, width=70)
+                tk.Label(additional_frame, text="Diagram/Picture Input:", 
+                        font=('Arial', 9, 'bold')).pack(anchor=tk.W, pady=5)
+
+                helper_label = tk.Label(
+                    additional_frame,
+                    text="Use image path, text description, or open Diagram Painter to build a diagram.",
+                    font=('Arial', 8, 'italic'),
+                    fg='#555555'
+                )
+                helper_label.pack(anchor=tk.W)
+
+                controls = tk.Frame(additional_frame)
+                controls.pack(fill=tk.X, pady=5)
+
+                diagram_text = scrolledtext.ScrolledText(additional_frame, height=5, width=70)
                 diagram_text.pack(fill=tk.X, pady=5)
                 diagram_text.insert("1.0", "Enter diagram description or image file path")
+
+                def choose_image_path():
+                    image_path = filedialog.askopenfilename(
+                        title="Select Diagram Image",
+                        filetypes=[("Image files", "*.png *.gif *.ppm *.pgm"), ("All files", "*.*")]
+                    )
+                    if image_path:
+                        diagram_text.delete("1.0", "end")
+                        diagram_text.insert("1.0", image_path)
+
+                def open_diagram_painter():
+                    painter = tk.Toplevel(dialog)
+                    painter.title("Diagram Painter")
+                    painter.geometry("980x680")
+                    painter.minsize(860, 560)
+
+                    painter_data = {
+                        'elements': [],
+                        'active_tool': tk.StringVar(value='pen'),
+                        'line_color': '#000000',
+                        'line_width': tk.IntVar(value=2),
+                        'current_points': [],
+                        'background_path': None,
+                        'bg_photo': None
+                    }
+
+                    toolbar = tk.Frame(painter)
+                    toolbar.pack(fill=tk.X, padx=6, pady=6)
+
+                    tk.Label(toolbar, text='Tool:', font=('Arial', 9, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
+                    for tool in ['pen', 'line', 'rect', 'text']:
+                        tk.Radiobutton(toolbar, text=tool.title(), value=tool, variable=painter_data['active_tool']).pack(side=tk.LEFT, padx=2)
+
+                    tk.Label(toolbar, text='Width:').pack(side=tk.LEFT, padx=(10, 2))
+                    tk.Spinbox(toolbar, from_=1, to=8, textvariable=painter_data['line_width'], width=4).pack(side=tk.LEFT)
+
+                    def clear_canvas():
+                        canvas.delete('all')
+                        painter_data['elements'].clear()
+                        if painter_data['background_path']:
+                            try:
+                                img = tk.PhotoImage(file=painter_data['background_path'])
+                                painter_data['bg_photo'] = img
+                                canvas.create_image(0, 0, image=img, anchor='nw', tags='bg_image')
+                            except tk.TclError:
+                                painter_data['background_path'] = None
+
+                    def load_background():
+                        image_path = filedialog.askopenfilename(
+                            title='Select Background Diagram Image',
+                            filetypes=[('Image files', '*.png *.gif *.ppm *.pgm'), ('All files', '*.*')]
+                        )
+                        if not image_path:
+                            return
+                        try:
+                            img = tk.PhotoImage(file=image_path)
+                        except tk.TclError:
+                            messagebox.showerror('Error', 'Unable to load selected image')
+                            return
+                        painter_data['background_path'] = image_path
+                        painter_data['bg_photo'] = img
+                        clear_canvas()
+
+                    tk.Button(toolbar, text='Load Background', command=load_background).pack(side=tk.LEFT, padx=6)
+                    tk.Button(toolbar, text='Clear', command=clear_canvas).pack(side=tk.LEFT, padx=4)
+
+                    canvas = tk.Canvas(painter, bg='white', relief=tk.SOLID, bd=1)
+                    canvas.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+
+                    def on_press(event):
+                        tool = painter_data['active_tool'].get()
+                        if tool == 'text':
+                            text_value = simpledialog.askstring('Add Text', 'Enter text for diagram:', parent=painter)
+                            if text_value:
+                                canvas.create_text(event.x, event.y, text=text_value, anchor='nw', font=('Arial', 12))
+                                painter_data['elements'].append({'kind': 'text', 'x': event.x, 'y': event.y, 'text': text_value})
+                            return
+
+                        painter_data['start_x'] = event.x
+                        painter_data['start_y'] = event.y
+                        if tool == 'pen':
+                            painter_data['current_points'] = [(event.x, event.y)]
+                            painter_data['temp_item'] = canvas.create_line(event.x, event.y, event.x + 1, event.y + 1,
+                                                                           fill=painter_data['line_color'],
+                                                                           width=painter_data['line_width'].get(),
+                                                                           smooth=True)
+                        elif tool in ('line', 'rect'):
+                            create_fn = canvas.create_line if tool == 'line' else canvas.create_rectangle
+                            painter_data['temp_item'] = create_fn(event.x, event.y, event.x, event.y,
+                                                                  outline=painter_data['line_color'],
+                                                                  width=painter_data['line_width'].get())
+
+                    def on_drag(event):
+                        tool = painter_data['active_tool'].get()
+                        temp_item = painter_data.get('temp_item')
+                        if not temp_item:
+                            return
+                        if tool == 'pen':
+                            pts = painter_data['current_points']
+                            pts.append((event.x, event.y))
+                            flat = [c for point in pts for c in point]
+                            canvas.coords(temp_item, *flat)
+                        else:
+                            canvas.coords(temp_item, painter_data['start_x'], painter_data['start_y'], event.x, event.y)
+
+                    def on_release(event):
+                        tool = painter_data['active_tool'].get()
+                        temp_item = painter_data.get('temp_item')
+                        if not temp_item:
+                            return
+                        if tool == 'pen':
+                            points = painter_data.get('current_points', [])
+                            if len(points) > 1:
+                                painter_data['elements'].append({
+                                    'kind': 'pen',
+                                    'points': points,
+                                    'color': painter_data['line_color'],
+                                    'width': painter_data['line_width'].get()
+                                })
+                        elif tool == 'line':
+                            painter_data['elements'].append({
+                                'kind': 'line',
+                                'coords': [painter_data['start_x'], painter_data['start_y'], event.x, event.y],
+                                'color': painter_data['line_color'],
+                                'width': painter_data['line_width'].get()
+                            })
+                        elif tool == 'rect':
+                            painter_data['elements'].append({
+                                'kind': 'rect',
+                                'coords': [painter_data['start_x'], painter_data['start_y'], event.x, event.y],
+                                'color': painter_data['line_color'],
+                                'width': painter_data['line_width'].get()
+                            })
+                        painter_data['temp_item'] = None
+
+                    canvas.bind('<ButtonPress-1>', on_press)
+                    canvas.bind('<B1-Motion>', on_drag)
+                    canvas.bind('<ButtonRelease-1>', on_release)
+
+                    def save_to_diagram_input():
+                        payload = {
+                            'type': 'diagram_editor_v1',
+                            'width': max(800, canvas.winfo_width()),
+                            'height': max(500, canvas.winfo_height()),
+                            'background_path': painter_data['background_path'],
+                            'elements': painter_data['elements']
+                        }
+                        diagram_text.delete('1.0', 'end')
+                        diagram_text.insert('1.0', '__DIAGRAM_EDITOR__' + json.dumps(payload))
+                        painter.destroy()
+
+                    tk.Button(painter, text='Use This Diagram', command=save_to_diagram_input,
+                              bg='#27ae60', fg='white').pack(pady=(0, 8))
+
+                tk.Button(controls, text='Choose Image', command=choose_image_path).pack(side=tk.LEFT, padx=4)
+                tk.Button(controls, text='Open Diagram Painter', command=open_diagram_painter,
+                          bg='#3498db', fg='white').pack(side=tk.LEFT, padx=4)
+
                 additional_widgets['diagramImage'] = diagram_text
             else:
                 tk.Label(additional_frame, text="No additional inputs required for this question type.", 
