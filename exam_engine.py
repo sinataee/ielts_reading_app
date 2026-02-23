@@ -190,6 +190,9 @@ class ExamEngineWindow:
         paned.add(right_frame, minsize=450, width=half_width, stretch='always')
 
         tk.Label(reading_host, text="Reading Passage", font=('Arial', 14, 'bold'),
+        paned.add(left_frame, minsize=450, width=half_width, stretch='always')
+        
+        tk.Label(left_frame, text="Reading Passage", font=('Arial', 14, 'bold'),
                 bg='#34495e', fg='white').pack(fill=tk.X)
 
         self.reading_text = scrolledtext.ScrolledText(reading_host, wrap=tk.WORD,
@@ -202,6 +205,7 @@ class ExamEngineWindow:
         self.reading_text.bind("<ButtonRelease-1>", self.on_text_selection)
         self.reading_text.bind('<Key>', lambda e: 'break')
 
+        
         # Configure highlight tags
         self.reading_text.tag_configure('highlight_yellow', background='#FFFF00')
         self.reading_text.tag_configure('highlight_green', background='#90EE90')
@@ -229,6 +233,30 @@ class ExamEngineWindow:
         self.root.bind('<Configure>', schedule_balance, add='+')
         
         tk.Label(questions_host, text="Questions", font=('Arial', 14, 'bold'),
+        # Right pane - Questions
+        paned.add(right_frame, minsize=450, width=half_width, stretch='always')
+
+        def keep_balanced_panes():
+            try:
+                total = max(900, self.root.winfo_width())
+                if abs(total - self._last_pane_width) < 8:
+                    return
+                self._last_pane_width = total
+                paned.sash_place(0, total // 2, 1)
+            except tk.TclError:
+                pass
+
+        def schedule_balance(event=None):
+            if event is not None and event.widget is not self.root:
+                return
+            if self._pane_balance_job:
+                self.root.after_cancel(self._pane_balance_job)
+            self._pane_balance_job = self.root.after(80, keep_balanced_panes)
+
+        self.root.after_idle(keep_balanced_panes)
+        self.root.bind('<Configure>', schedule_balance, add='+')
+        
+        tk.Label(right_frame, text="Questions", font=('Arial', 14, 'bold'),
                 bg='#34495e', fg='white').pack(fill=tk.X)
         
         # Canvas with scrollbar for questions
@@ -282,6 +310,12 @@ class ExamEngineWindow:
         widget.bind("<MouseWheel>", _on_mousewheel, add="+")
         widget.bind("<Button-4>", _on_mousewheel, add="+")
         widget.bind("<Button-5>", _on_mousewheel, add="+")
+                # Widget can be destroyed while global wheel bindings still fire.
+                return
+
+        widget.bind_all("<MouseWheel>", _on_mousewheel, add="+")
+        widget.bind_all("<Button-4>", _on_mousewheel, add="+")
+        widget.bind_all("<Button-5>", _on_mousewheel, add="+")
     
     def _make_selectable_text(self, parent, text: str, font=('Arial', 10), wraplength=600,
                               justify=tk.LEFT, padding=(0, 0), bold=False):
@@ -842,6 +876,22 @@ class ExamEngineWindow:
                     diagram_text.bind("<ButtonRelease-1>", lambda e: self.show_highlight_menu(e, diagram_text))
                     diagram_text.pack(fill=tk.BOTH, expand=True)
                     self.bind_mousewheel_scrolling(diagram_text)
+                diagram_text = tk.Text(diagram_frame, height=8, width=70, wrap=tk.WORD,
+                                       font=('Arial', 10), bg='white', padx=10, pady=10)
+                diagram_text.insert("1.0", diagram_data)
+                diagram_text.bind('<Key>', lambda e: 'break')
+
+                # Configure highlight tags
+                diagram_text.tag_configure('highlight_yellow', background='#FFFF00')
+                diagram_text.tag_configure('highlight_green', background='#90EE90')
+                diagram_text.tag_configure('highlight_blue', background='#ADD8E6')
+                diagram_text.tag_configure('highlight_pink', background='#FFB6C1')
+
+                # Enable highlighting
+                diagram_text.bind("<<Selection>>", lambda e: self.show_highlight_menu(e, diagram_text))
+                diagram_text.bind("<ButtonRelease-1>", lambda e: self.show_highlight_menu(e, diagram_text))
+                diagram_text.pack(fill=tk.BOTH, expand=True)
+                self.bind_mousewheel_scrolling(diagram_text)
         
         return options
     
