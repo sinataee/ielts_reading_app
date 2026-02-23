@@ -158,6 +158,7 @@ class MainLauncher:
             exam_window = tk.Toplevel(self.root)
             exam_window.title("IELTS Reading Exam - Full Test")
             exam_engine.ExamEngineWindow(exam_window, package=merged_package, questions_left=True)
+            exam_engine.ExamEngineWindow(exam_window, package=merged_package, questions_left=False)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to launch full reading exam:\n{str(e)}")
 

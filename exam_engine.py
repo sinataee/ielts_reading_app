@@ -204,6 +204,7 @@ class ExamEngineWindow:
         self.reading_text.bind("<<Selection>>", self.on_text_selection)
         self.reading_text.bind("<ButtonRelease-1>", self.on_text_selection)
         self.reading_text.bind('<Key>', lambda e: 'break')
+
         
         # Configure highlight tags
         self.reading_text.tag_configure('highlight_yellow', background='#FFFF00')
@@ -231,6 +232,7 @@ class ExamEngineWindow:
         self.root.after_idle(keep_balanced_panes)
         self.root.bind('<Configure>', schedule_balance, add='+')
         
+        tk.Label(questions_host, text="Questions", font=('Arial', 14, 'bold'),
         # Right pane - Questions
         paned.add(right_frame, minsize=450, width=half_width, stretch='always')
 
@@ -291,7 +293,7 @@ class ExamEngineWindow:
         self._last_pane_width = 0
 
     def bind_mousewheel_scrolling(self, widget):
-        """Enable cross-platform mouse-wheel scrolling for canvas/text widgets."""
+        """Enable cross-platform mouse-wheel scrolling for the hovered widget only."""
         def _on_mousewheel(event):
             try:
                 if not widget.winfo_exists():
@@ -303,6 +305,11 @@ class ExamEngineWindow:
                 elif getattr(event, 'num', None) == 5:
                     widget.yview_scroll(1, "units")
             except tk.TclError:
+                return
+
+        widget.bind("<MouseWheel>", _on_mousewheel, add="+")
+        widget.bind("<Button-4>", _on_mousewheel, add="+")
+        widget.bind("<Button-5>", _on_mousewheel, add="+")
                 # Widget can be destroyed while global wheel bindings still fire.
                 return
 
