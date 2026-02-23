@@ -9,37 +9,56 @@ from datetime import datetime, timedelta
 import threading
 import re
 import os
+import json
 from models import (
     ReadingPackage, AnswerRecord, HighlightRecord, QuestionType
 )
 
 
 class HighlightToolbar(tk.Frame):
-    """Toolbar for text highlighting"""
+    """Tiny toolbar for text highlighting"""
     
     def __init__(self, parent, callback):
-        super().__init__(parent, bg='lightgray', relief=tk.RAISED, bd=2)
+        super().__init__(parent, bg='#f4f4f4', relief=tk.RAISED, bd=1)
         self.callback = callback
-        
+
         colors = [
-            ('Yellow', '#FFFF00'),
-            ('Green', '#90EE90'),
-            ('Blue', '#ADD8E6'),
-            ('Pink', '#FFB6C1')
+            ('Y', '#FFFF00'),
+            ('G', '#90EE90'),
+            ('B', '#ADD8E6'),
+            ('P', '#FFB6C1')
         ]
-        
-        for color_name, color_code in colors:
-            btn = tk.Button(self, text=color_name, bg=color_code, 
-                          command=lambda c=color_code: self.callback(c))
-            btn.pack(side=tk.LEFT, padx=2)
-        
-        tk.Button(self, text="Remove", command=lambda: self.callback(None)).pack(side=tk.LEFT, padx=2)
+
+        for short_name, color_code in colors:
+            btn = tk.Button(
+                self,
+                text=short_name,
+                bg=color_code,
+                activebackground=color_code,
+                width=2,
+                height=1,
+                bd=1,
+                font=('Arial', 8, 'bold'),
+                command=lambda c=color_code: self.callback(c)
+            )
+            btn.pack(side=tk.LEFT, padx=1, pady=1)
+
+        tk.Button(
+            self,
+            text='✕',
+            width=2,
+            height=1,
+            bd=1,
+            font=('Arial', 8, 'bold'),
+            command=lambda: self.callback(None)
+        ).pack(side=tk.LEFT, padx=(2, 1), pady=1)
+
 
 
 class ExamEngineWindow:
     """Main Exam Engine Window"""
     
-    def __init__(self, root, package_path: Optional[str] = None):
+    def __init__(self, root, package_path: Optional[str] = None, package: Optional[ReadingPackage] = None, questions_left: bool = False):
         self.root = root
         self.root.title("IELTS Reading Exam")
         
@@ -70,8 +89,22 @@ class ExamEngineWindow:
         # Answer widgets
         self.answer_widgets: Dict[str, tk.Widget] = {}
         self._diagram_images: List[tk.PhotoImage] = []
+        self._diagram_highlights: Dict[int, List[int]] = {}
+        self._diagram_selection = None
+        self.questions_left = questions_left
         
-        if package_path:
+        if package is not None:
+            self.package = package
+            self.create_ui()
+            messagebox.showinfo(
+                "Package Loaded",
+                f"Package loaded successfully!\n\n"
+                f"Title: {self.package.reading_content.title}\n"
+                f"Question Groups: {len(self.package.question_groups)}\n"
+                f"Total Questions: {sum(len(qg.questions) for qg in self.package.question_groups)}\n\n"
+                f"Click 'Start Exam' to begin."
+            )
+        elif package_path:
             self.load_package(package_path)
         else:
             self.prompt_load_package()
@@ -141,40 +174,66 @@ class ExamEngineWindow:
         self.end_btn.pack(side=tk.LEFT, padx=5)
         
         # Main split screen
-        paned = tk.PanedWindow(self.root, orient=tk.HORIZONTAL)
+        paned = tk.PanedWindow(self.root, orient=tk.HORIZONTAL, sashrelief=tk.RAISED, sashwidth=6)
         paned.pack(fill=tk.BOTH, expand=True)
+        self.root.update_idletasks()
         
-        # Left pane - Reading content
+        # Two panes (order configurable)
         left_frame = tk.Frame(paned)
-        paned.add(left_frame, width=700)
-        
-        tk.Label(left_frame, text="Reading Passage", font=('Arial', 14, 'bold'),
+        right_frame = tk.Frame(paned)
+        half_width = max(500, self.root.winfo_width() // 2)
+
+        reading_host = right_frame if self.questions_left else left_frame
+        questions_host = left_frame if self.questions_left else right_frame
+
+        paned.add(left_frame, minsize=450, width=half_width, stretch='always')
+        paned.add(right_frame, minsize=450, width=half_width, stretch='always')
+
+        tk.Label(reading_host, text="Reading Passage", font=('Arial', 14, 'bold'),
                 bg='#34495e', fg='white').pack(fill=tk.X)
-        
-        self.reading_text = scrolledtext.ScrolledText(left_frame, wrap=tk.WORD, 
+
+        self.reading_text = scrolledtext.ScrolledText(reading_host, wrap=tk.WORD,
                                                       font=('Arial', 12), padx=20, pady=15,
                                                       spacing1=3, spacing2=2, spacing3=3)
         self.reading_text.pack(fill=tk.BOTH, expand=True)
-        
+
         # Bind selection event for highlighting
         self.reading_text.bind("<<Selection>>", self.on_text_selection)
-        
+        self.reading_text.bind("<ButtonRelease-1>", self.on_text_selection)
+        self.reading_text.bind('<Key>', lambda e: 'break')
+
         # Configure highlight tags
         self.reading_text.tag_configure('highlight_yellow', background='#FFFF00')
         self.reading_text.tag_configure('highlight_green', background='#90EE90')
         self.reading_text.tag_configure('highlight_blue', background='#ADD8E6')
         self.reading_text.tag_configure('highlight_pink', background='#FFB6C1')
+
+        def keep_balanced_panes():
+            try:
+                total = max(900, self.root.winfo_width())
+                if abs(total - self._last_pane_width) < 8:
+                    return
+                self._last_pane_width = total
+                paned.sash_place(0, total // 2, 1)
+            except tk.TclError:
+                pass
+
+        def schedule_balance(event=None):
+            if event is not None and event.widget is not self.root:
+                return
+            if self._pane_balance_job:
+                self.root.after_cancel(self._pane_balance_job)
+            self._pane_balance_job = self.root.after(80, keep_balanced_panes)
+
+        self.root.after_idle(keep_balanced_panes)
+        self.root.bind('<Configure>', schedule_balance, add='+')
         
-        # Right pane - Questions
-        right_frame = tk.Frame(paned)
-        paned.add(right_frame, width=700)
-        
-        tk.Label(right_frame, text="Questions", font=('Arial', 14, 'bold'),
+        tk.Label(questions_host, text="Questions", font=('Arial', 14, 'bold'),
                 bg='#34495e', fg='white').pack(fill=tk.X)
         
         # Canvas with scrollbar for questions
-        canvas = tk.Canvas(right_frame)
-        scrollbar = ttk.Scrollbar(right_frame, orient="vertical", command=canvas.yview)
+        canvas = tk.Canvas(questions_host)
+        scrollbar = ttk.Scrollbar(questions_host, orient="vertical", command=canvas.yview)
         self.questions_frame = tk.Frame(canvas)
         
         self.questions_frame.bind(
@@ -182,8 +241,13 @@ class ExamEngineWindow:
             lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
         
-        canvas.create_window((0, 0), window=self.questions_frame, anchor="nw")
+        self.questions_window = canvas.create_window((0, 0), window=self.questions_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
+
+        def fit_questions_to_canvas(event):
+            canvas.itemconfigure(self.questions_window, width=event.width)
+
+        canvas.bind('<Configure>', fit_questions_to_canvas)
         
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
@@ -197,21 +261,53 @@ class ExamEngineWindow:
         
         # Highlight toolbar (initially hidden)
         self.highlight_toolbar = None
+        self._pane_balance_job = None
+        self._last_pane_width = 0
 
     def bind_mousewheel_scrolling(self, widget):
-        """Enable cross-platform mouse-wheel scrolling for canvas/text widgets."""
+        """Enable cross-platform mouse-wheel scrolling for the hovered widget only."""
         def _on_mousewheel(event):
-            if hasattr(event, "delta") and event.delta:
-                widget.yview_scroll(int(-1 * (event.delta / 120)), "units")
-            elif event.num == 4:
-                widget.yview_scroll(-1, "units")
-            elif event.num == 5:
-                widget.yview_scroll(1, "units")
+            try:
+                if not widget.winfo_exists():
+                    return
+                if hasattr(event, "delta") and event.delta:
+                    widget.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                elif getattr(event, 'num', None) == 4:
+                    widget.yview_scroll(-1, "units")
+                elif getattr(event, 'num', None) == 5:
+                    widget.yview_scroll(1, "units")
+            except tk.TclError:
+                return
 
-        widget.bind_all("<MouseWheel>", _on_mousewheel, add="+")
-        widget.bind_all("<Button-4>", _on_mousewheel, add="+")
-        widget.bind_all("<Button-5>", _on_mousewheel, add="+")
+        widget.bind("<MouseWheel>", _on_mousewheel, add="+")
+        widget.bind("<Button-4>", _on_mousewheel, add="+")
+        widget.bind("<Button-5>", _on_mousewheel, add="+")
     
+    def _make_selectable_text(self, parent, text: str, font=('Arial', 10), wraplength=600,
+                              justify=tk.LEFT, padding=(0, 0), bold=False):
+        # Render selectable, read-only text with highlight support.
+        bg_color = parent.cget('bg')
+        char_width = max(30, int(wraplength / 7))
+        lines_estimate = max(1, min(8, (len(text) // char_width) + text.count('\n') + 1))
+        widget = tk.Text(parent, wrap=tk.WORD, height=lines_estimate, relief=tk.FLAT,
+                         bg=bg_color, font=font, padx=0, pady=0, borderwidth=0,
+                         highlightthickness=0, cursor='arrow')
+        widget.tag_configure('highlight_yellow', background='#FFFF00')
+        widget.tag_configure('highlight_green', background='#90EE90')
+        widget.tag_configure('highlight_blue', background='#ADD8E6')
+        widget.tag_configure('highlight_pink', background='#FFB6C1')
+        if bold:
+            widget.tag_configure('content', font=(font[0], font[1], 'bold'))
+            widget.insert('1.0', text, 'content')
+        else:
+            widget.insert('1.0', text)
+        # Keep widget selectable but read-only
+        widget.bind('<Key>', lambda e: 'break')
+        widget.bind('<<Selection>>', lambda e, w=widget: self.show_highlight_menu(e, w))
+        widget.bind('<ButtonRelease-1>', lambda e, w=widget: self.show_highlight_menu(e, w))
+        widget.pack(anchor=tk.W, fill=tk.X, pady=padding[1])
+        return widget
+
     def load_reading_content(self):
         """Load reading content into left pane"""
         self.reading_text.config(state=tk.NORMAL)
@@ -243,7 +339,6 @@ class ExamEngineWindow:
                 self.reading_text.tag_configure(f'para_body_{i}', font=('Arial', 12),
                                                spacing1=2, spacing2=2, spacing3=5)
         
-        self.reading_text.config(state=tk.DISABLED)
     
     def load_questions(self):
         """Load questions into right pane"""
@@ -258,8 +353,14 @@ class ExamEngineWindow:
             
             # Explanation
             if qg.explanation:
-                tk.Label(group_frame, text=qg.explanation, wraplength=600, 
-                        justify=tk.LEFT, font=('Arial', 10, 'italic')).pack(anchor=tk.W, pady=5)
+                self._make_selectable_text(
+                    group_frame,
+                    qg.explanation,
+                    font=('Arial', 10, 'italic'),
+                    wraplength=620,
+                    justify=tk.LEFT,
+                    padding=(0, 5)
+                )
             
             # Type indicator
             tk.Label(group_frame, text=f"Type: {qg.type.value}", 
@@ -280,8 +381,13 @@ class ExamEngineWindow:
                 if qg.type == QuestionType.TYPE1 and '\n' in q.text:
                     question_display = q.text.split('\n')[0]
                 
-                tk.Label(q_frame, text=f"{question_number}. {question_display}", 
-                        wraplength=500, justify=tk.LEFT, font=('Arial', 10)).pack(anchor=tk.W)
+                self._make_selectable_text(
+                    q_frame,
+                    f"{question_number}. {question_display}",
+                    font=('Arial', 10),
+                    wraplength=620,
+                    justify=tk.LEFT
+                )
                 
                 # Answer input based on question type
                 answer_widget = self.create_answer_input(q_frame, qg.type, q.question_id, q.text)
@@ -308,8 +414,28 @@ class ExamEngineWindow:
         if question_type == QuestionType.TYPE1:  # Multiple choice
             var = tk.StringVar()
             frame = tk.Frame(parent)
-            frame.pack(anchor=tk.W, padx=20, pady=5)
-            
+            frame.pack(anchor=tk.W, fill=tk.X, padx=20, pady=5)
+
+            def add_selectable_choice_row(option, option_text):
+                row = tk.Frame(frame)
+                row.pack(anchor=tk.W, fill=tk.X, pady=2)
+
+                tk.Radiobutton(
+                    row,
+                    text="",
+                    variable=var,
+                    value=option,
+                    command=lambda: self.record_answer(question_id, var.get())
+                ).pack(side=tk.LEFT)
+
+                self._make_selectable_text(
+                    row,
+                    f"{option}. {option_text}",
+                    font=('Arial', 10),
+                    wraplength=520,
+                    justify=tk.LEFT
+                )
+
             # Extract choices from question text if embedded
             choices = ['A', 'B', 'C', 'D']  # Default
             if '\n' in question_text:
@@ -320,30 +446,43 @@ class ExamEngineWindow:
                         parts = line.split('.', 1)
                         if len(parts) >= 2:
                             option = parts[0].strip().upper()
-                            text = parts[1].strip()
-                            tk.Radiobutton(frame, text=f"{option}. {text}", variable=var, value=option,
-                                         command=lambda: self.record_answer(question_id, var.get()),
-                                         wraplength=500, justify=tk.LEFT).pack(anchor=tk.W, pady=2)
+                            option_text = parts[1].strip()
+                            add_selectable_choice_row(option, option_text)
                 else:
                     # Fallback to default options
                     for option in choices:
-                        tk.Radiobutton(frame, text=option, variable=var, value=option,
-                                     command=lambda: self.record_answer(question_id, var.get())).pack(anchor=tk.W)
+                        add_selectable_choice_row(option, option)
             else:
                 for option in choices:
-                    tk.Radiobutton(frame, text=option, variable=var, value=option,
-                                 command=lambda: self.record_answer(question_id, var.get())).pack(anchor=tk.W)
+                    add_selectable_choice_row(option, option)
             return var
         
         elif question_type in [QuestionType.TYPE2, QuestionType.TYPE3]:  # True/False/Not Given or Yes/No/Not Given
             var = tk.StringVar()
             frame = tk.Frame(parent)
-            frame.pack(anchor=tk.W, padx=20, pady=5)
-            
+            frame.pack(anchor=tk.W, fill=tk.X, padx=20, pady=5)
+
+            def add_selectable_radio_row(option_text):
+                row = tk.Frame(frame)
+                row.pack(anchor=tk.W, fill=tk.X, pady=1)
+                tk.Radiobutton(
+                    row,
+                    text="",
+                    variable=var,
+                    value=option_text,
+                    command=lambda: self.record_answer(question_id, var.get())
+                ).pack(side=tk.LEFT)
+                self._make_selectable_text(
+                    row,
+                    option_text,
+                    font=('Arial', 10),
+                    wraplength=420,
+                    justify=tk.LEFT
+                )
+
             options = ['TRUE', 'FALSE', 'NOT GIVEN'] if question_type == QuestionType.TYPE2 else ['YES', 'NO', 'NOT GIVEN']
             for option in options:
-                tk.Radiobutton(frame, text=option, variable=var, value=option,
-                             command=lambda: self.record_answer(question_id, var.get())).pack(anchor=tk.W)
+                add_selectable_radio_row(option)
             return var
         
         elif question_type in [QuestionType.TYPE4, QuestionType.TYPE5, 
@@ -380,9 +519,13 @@ class ExamEngineWindow:
             list_frame.pack(fill=tk.X, padx=5, pady=5)
             
             for item in data['infoList']:
-                tk.Label(list_frame, text=f"  {item}", justify=tk.LEFT, 
-                        wraplength=600, font=('Arial', 10), bg='white',
-                        pady=3).pack(anchor=tk.W, padx=10, pady=2)
+                self._make_selectable_text(
+                    list_frame,
+                    f"  {item}",
+                    font=('Arial', 10),
+                    wraplength=620,
+                    justify=tk.LEFT
+                )
                 options.append(item.split('.')[0].strip() if '.' in item else item[:10])
         
         elif 'headingList' in data:
@@ -393,9 +536,13 @@ class ExamEngineWindow:
             list_frame.pack(fill=tk.X, padx=5, pady=5)
             
             for i, heading in enumerate(data['headingList']):
-                tk.Label(list_frame, text=f"  {heading}", justify=tk.LEFT, 
-                        wraplength=600, font=('Arial', 10), bg='white',
-                        pady=3).pack(anchor=tk.W, padx=10, pady=2)
+                self._make_selectable_text(
+                    list_frame,
+                    f"  {heading}",
+                    font=('Arial', 10),
+                    wraplength=620,
+                    justify=tk.LEFT
+                )
                 options.append(heading.split('.')[0].strip() if '.' in heading else heading[:20])
         
         elif 'featureList' in data:
@@ -406,9 +553,13 @@ class ExamEngineWindow:
             list_frame.pack(fill=tk.X, padx=5, pady=5)
             
             for item in data['featureList']:
-                tk.Label(list_frame, text=f"  {item}", justify=tk.LEFT, 
-                        wraplength=600, font=('Arial', 10), bg='white',
-                        pady=3).pack(anchor=tk.W, padx=10, pady=2)
+                self._make_selectable_text(
+                    list_frame,
+                    f"  {item}",
+                    font=('Arial', 10),
+                    wraplength=620,
+                    justify=tk.LEFT
+                )
                 options.append(item.split('.')[0].strip() if '.' in item else item[:15])
         
         elif 'sentenceEndingList' in data:
@@ -419,9 +570,13 @@ class ExamEngineWindow:
             list_frame.pack(fill=tk.X, padx=5, pady=5)
             
             for i, ending in enumerate(data['sentenceEndingList']):
-                tk.Label(list_frame, text=f"  {ending}", justify=tk.LEFT, 
-                        wraplength=600, font=('Arial', 10), bg='white',
-                        pady=3).pack(anchor=tk.W, padx=10, pady=2)
+                self._make_selectable_text(
+                    list_frame,
+                    f"  {ending}",
+                    font=('Arial', 10),
+                    wraplength=620,
+                    justify=tk.LEFT
+                )
                 options.append(ending.split('.')[0].strip() if '.' in ending else chr(65+i))
         
         elif 'summaryData' in data:
@@ -453,6 +608,8 @@ class ExamEngineWindow:
             
             # Enable text selection and bind highlighting
             text_widget.bind("<<Selection>>", lambda e: self.show_highlight_menu(e, text_widget))
+            text_widget.bind("<ButtonRelease-1>", lambda e: self.show_highlight_menu(e, text_widget))
+            text_widget.bind('<Key>', lambda e: 'break')
             self.bind_mousewheel_scrolling(text_widget)
         
         elif 'tableData' in data:
@@ -463,13 +620,14 @@ class ExamEngineWindow:
             table_container = tk.Frame(frame, bg='white', relief=tk.SOLID, bd=2)
             table_container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
             
-            table_canvas = tk.Canvas(table_container, bg='white', height=300)
+            table_canvas = tk.Canvas(table_container, bg='white', height=460)
             table_scrollbar = ttk.Scrollbar(table_container, orient="vertical", command=table_canvas.yview)
+            table_scrollbar_x = ttk.Scrollbar(table_container, orient="horizontal", command=table_canvas.xview)
             table_inner = tk.Frame(table_canvas, bg='white')
             
             table_inner.bind("<Configure>", lambda e: table_canvas.configure(scrollregion=table_canvas.bbox("all")))
             table_canvas.create_window((0, 0), window=table_inner, anchor="nw")
-            table_canvas.configure(yscrollcommand=table_scrollbar.set)
+            table_canvas.configure(yscrollcommand=table_scrollbar.set, xscrollcommand=table_scrollbar_x.set)
             
             # Display table with Text widgets for highlighting support
             table_data = data['tableData']
@@ -481,14 +639,15 @@ class ExamEngineWindow:
                 for c in range(cols):
                     cell_text = content[r][c] if r < len(content) and c < len(content[r]) else ""
                     
-                    # Determine if this cell contains a blank
-                    is_blank = '[BLANK]' in cell_text or bool(re.search(r'\[\d+\]', cell_text))
+                    # Only mark full-cell blanks (not normal text that happens to include [1], [2], etc.)
+                    normalized_text = cell_text.strip()
+                    is_blank = normalized_text in {'[BLANK]'} or bool(re.fullmatch(r'\[\d+\]', normalized_text))
                     is_header = (r == 0)
                     
                     # Use Text widget instead of Label to support highlighting
-                    cell_widget = tk.Text(table_inner, width=18, height=3, 
+                    cell_widget = tk.Text(table_inner, width=24, height=4, 
                                          relief=tk.SOLID, bd=1, wrap=tk.WORD,
-                                         font=('Arial', 10, 'bold' if is_header else 'normal'),
+                                         font=('Arial', 11, 'bold' if is_header else 'normal'),
                                          padx=5, pady=5)
                     
                     # Set background color
@@ -500,16 +659,24 @@ class ExamEngineWindow:
                         cell_widget.configure(bg='white')
                     
                     cell_widget.insert("1.0", cell_text)
-                    cell_widget.configure(state=tk.DISABLED)  # Make read-only but selectable
+
+                    # Highlight inline blank tokens without coloring whole cell
+                    for match in re.finditer(r'\[BLANK\]|\[\d+\]', cell_text):
+                        start_idx = f"1.0+{match.start()}c"
+                        end_idx = f"1.0+{match.end()}c"
+                        cell_widget.tag_add('blank_inline', start_idx, end_idx)
                     
                     # Configure highlight tags
                     cell_widget.tag_configure('highlight_yellow', background='#FFFF00')
                     cell_widget.tag_configure('highlight_green', background='#90EE90')
                     cell_widget.tag_configure('highlight_blue', background='#ADD8E6')
                     cell_widget.tag_configure('highlight_pink', background='#FFB6C1')
+                    cell_widget.tag_configure('blank_inline', background='#ffeb3b')
                     
-                    # Enable highlighting
+                    # Enable highlighting and keep read-only
+                    cell_widget.bind('<Key>', lambda e: 'break')
                     cell_widget.bind("<<Selection>>", lambda e, w=cell_widget: self.show_highlight_menu(e, w))
+                    cell_widget.bind("<ButtonRelease-1>", lambda e, w=cell_widget: self.show_highlight_menu(e, w))
                     
                     cell_widget.grid(row=r, column=c, sticky='nsew', padx=1, pady=1)
             
@@ -519,6 +686,7 @@ class ExamEngineWindow:
             
             table_canvas.pack(side="left", fill="both", expand=True, padx=10, pady=10)
             table_scrollbar.pack(side="right", fill="y")
+            table_scrollbar_x.pack(side="bottom", fill="x")
             self.bind_mousewheel_scrolling(table_canvas)
         
         elif 'flowchartData' in data:
@@ -530,7 +698,7 @@ class ExamEngineWindow:
             flowchart_container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
             
             # Use canvas to draw flowchart graphically
-            canvas = tk.Canvas(flowchart_container, bg='white', height=400, width=650)
+            canvas = tk.Canvas(flowchart_container, bg='white', height=520, width=900)
             scrollbar_y = ttk.Scrollbar(flowchart_container, orient="vertical", command=canvas.yview)
             scrollbar_x = ttk.Scrollbar(flowchart_container, orient="horizontal", command=canvas.xview)
             
@@ -557,46 +725,123 @@ class ExamEngineWindow:
             
             diagram_data = str(data['diagramImage']).strip()
 
-            # If this is an image path, render the image. Otherwise render rich text.
-            lower_value = diagram_data.lower()
-            is_image_path = (
-                os.path.exists(diagram_data)
-                and lower_value.endswith((".png", ".gif", ".ppm", ".pgm"))
-            )
+            # If this is a saved diagram-editor payload, render it as drawable canvas.
+            if diagram_data.startswith('__DIAGRAM_EDITOR__'):
+                canvas_payload = diagram_data.replace('__DIAGRAM_EDITOR__', '', 1)
+                diagram_canvas = tk.Canvas(diagram_frame, bg='white', highlightthickness=0)
+                diagram_canvas.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
-            if is_image_path:
-                image_widget = tk.Label(diagram_frame, bg='white')
-                image_widget.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
                 try:
-                    image = tk.PhotoImage(file=diagram_data)
-                    self._diagram_images.append(image)
-                    image_widget.config(image=image)
-                except tk.TclError:
-                    image_widget.config(text=f"Unable to load image: {diagram_data}", font=('Arial', 10), anchor='w')
+                    payload = json.loads(canvas_payload)
+                    canvas_width = int(payload.get('width', 900))
+                    canvas_height = int(payload.get('height', 550))
+                    diagram_canvas.configure(width=canvas_width, height=canvas_height, scrollregion=(0, 0, canvas_width, canvas_height))
+
+                    bg_path = payload.get('background_path')
+                    if bg_path and os.path.exists(bg_path):
+                        try:
+                            bg_img = tk.PhotoImage(file=bg_path)
+                            self._diagram_images.append(bg_img)
+                            diagram_canvas.create_image(0, 0, image=bg_img, anchor='nw')
+                        except tk.TclError:
+                            pass
+
+                    for element in payload.get('elements', []):
+                        kind = element.get('kind')
+                        if kind == 'text':
+                            diagram_canvas.create_text(
+                                element.get('x', 0),
+                                element.get('y', 0),
+                                text=element.get('text', ''),
+                                anchor='nw',
+                                font=('Arial', 12)
+                            )
+                        elif kind == 'pen':
+                            points = element.get('points', [])
+                            if len(points) > 1:
+                                flat = [coord for pt in points for coord in pt]
+                                diagram_canvas.create_line(
+                                    *flat,
+                                    fill=element.get('color', '#000000'),
+                                    width=element.get('width', 2),
+                                    smooth=True
+                                )
+                        elif kind == 'line':
+                            coords = element.get('coords', [0, 0, 0, 0])
+                            diagram_canvas.create_line(
+                                *coords,
+                                fill=element.get('color', '#000000'),
+                                width=element.get('width', 2)
+                            )
+                        elif kind == 'rect':
+                            coords = element.get('coords', [0, 0, 0, 0])
+                            diagram_canvas.create_rectangle(
+                                *coords,
+                                outline=element.get('color', '#000000'),
+                                width=element.get('width', 2)
+                            )
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    diagram_canvas.create_text(10, 10, anchor='nw', text='Unable to render diagram payload', font=('Arial', 10))
+
+                diagram_canvas.bind('<ButtonPress-1>', lambda e, c=diagram_canvas: self.start_diagram_selection(e, c))
+                diagram_canvas.bind('<B1-Motion>', lambda e, c=diagram_canvas: self.update_diagram_selection(e, c))
+                diagram_canvas.bind('<ButtonRelease-1>', lambda e, c=diagram_canvas: self.finish_diagram_selection(e, c))
 
                 tk.Label(
                     diagram_frame,
-                    text=f"Image source: {diagram_data}",
+                    text='Diagram editor content (drag to highlight region)',
                     bg='white',
                     fg='#555555',
                     font=('Arial', 9, 'italic')
                 ).pack(anchor=tk.W, padx=10, pady=(0, 8))
             else:
-                diagram_text = tk.Text(diagram_frame, height=8, width=70, wrap=tk.WORD,
-                                       font=('Arial', 10), bg='white', padx=10, pady=10)
-                diagram_text.insert("1.0", diagram_data)
-                diagram_text.configure(state=tk.DISABLED)
+                # If this is an image path, render the image. Otherwise render rich text.
+                lower_value = diagram_data.lower()
+                is_image_path = (
+                    os.path.exists(diagram_data)
+                    and lower_value.endswith((".png", ".gif", ".ppm", ".pgm"))
+                )
 
-                # Configure highlight tags
-                diagram_text.tag_configure('highlight_yellow', background='#FFFF00')
-                diagram_text.tag_configure('highlight_green', background='#90EE90')
-                diagram_text.tag_configure('highlight_blue', background='#ADD8E6')
-                diagram_text.tag_configure('highlight_pink', background='#FFB6C1')
+                if is_image_path:
+                    image_canvas = tk.Canvas(diagram_frame, bg='white', highlightthickness=0)
+                    image_canvas.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+                    try:
+                        image = tk.PhotoImage(file=diagram_data)
+                        self._diagram_images.append(image)
+                        image_canvas.configure(width=image.width(), height=image.height(), scrollregion=(0, 0, image.width(), image.height()))
+                        image_canvas.create_image(0, 0, image=image, anchor='nw')
 
-                # Enable highlighting
-                diagram_text.bind("<<Selection>>", lambda e: self.show_highlight_menu(e, diagram_text))
-                diagram_text.pack(fill=tk.BOTH, expand=True)
-                self.bind_mousewheel_scrolling(diagram_text)
+                        # Enable rectangle highlighting on diagrams (drag to select region)
+                        image_canvas.bind('<ButtonPress-1>', lambda e, c=image_canvas: self.start_diagram_selection(e, c))
+                        image_canvas.bind('<B1-Motion>', lambda e, c=image_canvas: self.update_diagram_selection(e, c))
+                        image_canvas.bind('<ButtonRelease-1>', lambda e, c=image_canvas: self.finish_diagram_selection(e, c))
+                    except tk.TclError:
+                        image_canvas.create_text(10, 10, anchor='nw', text=f"Unable to load image: {diagram_data}", font=('Arial', 10))
+
+                    tk.Label(
+                        diagram_frame,
+                        text=f"Image source: {diagram_data} (drag on image to highlight region)",
+                        bg='white',
+                        fg='#555555',
+                        font=('Arial', 9, 'italic')
+                    ).pack(anchor=tk.W, padx=10, pady=(0, 8))
+                else:
+                    diagram_text = tk.Text(diagram_frame, height=8, width=70, wrap=tk.WORD,
+                                           font=('Arial', 10), bg='white', padx=10, pady=10)
+                    diagram_text.insert("1.0", diagram_data)
+                    diagram_text.bind('<Key>', lambda e: 'break')
+
+                    # Configure highlight tags
+                    diagram_text.tag_configure('highlight_yellow', background='#FFFF00')
+                    diagram_text.tag_configure('highlight_green', background='#90EE90')
+                    diagram_text.tag_configure('highlight_blue', background='#ADD8E6')
+                    diagram_text.tag_configure('highlight_pink', background='#FFB6C1')
+
+                    # Enable highlighting
+                    diagram_text.bind("<<Selection>>", lambda e: self.show_highlight_menu(e, diagram_text))
+                    diagram_text.bind("<ButtonRelease-1>", lambda e: self.show_highlight_menu(e, diagram_text))
+                    diagram_text.pack(fill=tk.BOTH, expand=True)
+                    self.bind_mousewheel_scrolling(diagram_text)
         
         return options
     
@@ -608,9 +853,6 @@ class ExamEngineWindow:
     
     def on_text_selection(self, event):
         """Handle text selection for highlighting"""
-        if not self.exam_started:
-            return
-        
         try:
             selection = self.reading_text.get("sel.first", "sel.last")
             if selection and len(selection.strip()) > 0:
@@ -619,13 +861,16 @@ class ExamEngineWindow:
                     self.highlight_toolbar.destroy()
                 
                 # Get selection coordinates
-                x, y = event.x_root, event.y_root
+                x = getattr(event, 'x_root', self.root.winfo_pointerx())
+                y = getattr(event, 'y_root', self.root.winfo_pointery())
                 
                 self.highlight_toolbar = tk.Toplevel(self.root)
                 self.highlight_toolbar.wm_overrideredirect(True)
+                self.highlight_toolbar.attributes('-topmost', True)
                 self.highlight_toolbar.geometry(f"+{x}+{y-30}")
                 
-                HighlightToolbar(self.highlight_toolbar, self.apply_highlight)
+                toolbar = HighlightToolbar(self.highlight_toolbar, self.apply_highlight)
+                toolbar.pack(fill=tk.BOTH, expand=True)
         except tk.TclError:
             pass
     
@@ -718,24 +963,26 @@ class ExamEngineWindow:
     def show_highlight_menu(self, event, text_widget):
         """Show highlighting menu for text widgets in tables/flowcharts"""
         try:
-            # Check if there's a selection
-            text_widget.tag_ranges("sel")
-            
-            # Create popup menu
+            selection_ranges = text_widget.tag_ranges("sel")
+            if not selection_ranges:
+                return
+
             if self.highlight_toolbar:
                 self.highlight_toolbar.destroy()
-            
-            x, y = event.x_root, event.y_root
-            
+
+            x = getattr(event, 'x_root', self.root.winfo_pointerx())
+            y = getattr(event, 'y_root', self.root.winfo_pointery())
+
             self.highlight_toolbar = tk.Toplevel(self.root)
             self.highlight_toolbar.wm_overrideredirect(True)
+            self.highlight_toolbar.attributes('-topmost', True)
             self.highlight_toolbar.geometry(f"+{x}+{y-30}")
-            
-            HighlightToolbar(self.highlight_toolbar, lambda color: self.apply_text_highlight(text_widget, color))
+
+            toolbar = HighlightToolbar(self.highlight_toolbar, lambda color: self.apply_text_highlight(text_widget, color))
+            toolbar.pack(fill=tk.BOTH, expand=True)
         except tk.TclError:
-            # No selection
             pass
-    
+
     def apply_text_highlight(self, text_widget, color: Optional[str]):
         """Apply highlight to selected text in a Text widget"""
         try:
@@ -757,126 +1004,171 @@ class ExamEngineWindow:
         except tk.TclError:
             pass
     
+    def start_diagram_selection(self, event, canvas):
+        """Start selecting a diagram region for highlighting."""
+        x, y = canvas.canvasx(event.x), canvas.canvasy(event.y)
+        rect_id = canvas.create_rectangle(x, y, x, y, outline='#555555', width=2, dash=(3, 2))
+        self._diagram_selection = {
+            'canvas': canvas,
+            'start_x': x,
+            'start_y': y,
+            'temp_rect': rect_id
+        }
+
+    def update_diagram_selection(self, event, canvas):
+        """Update drag-selection rectangle on diagram."""
+        if not self._diagram_selection or self._diagram_selection.get('canvas') is not canvas:
+            return
+        x, y = canvas.canvasx(event.x), canvas.canvasy(event.y)
+        rect_id = self._diagram_selection['temp_rect']
+        canvas.coords(rect_id, self._diagram_selection['start_x'], self._diagram_selection['start_y'], x, y)
+
+    def finish_diagram_selection(self, event, canvas):
+        """Finish selection and show tiny color toolbar for diagram highlight."""
+        if not self._diagram_selection or self._diagram_selection.get('canvas') is not canvas:
+            return
+
+        x1, y1 = self._diagram_selection['start_x'], self._diagram_selection['start_y']
+        x2, y2 = canvas.canvasx(event.x), canvas.canvasy(event.y)
+        if abs(x2 - x1) < 5 or abs(y2 - y1) < 5:
+            canvas.delete(self._diagram_selection['temp_rect'])
+            self._diagram_selection = None
+            return
+
+        if self.highlight_toolbar:
+            self.highlight_toolbar.destroy()
+
+        screen_x = getattr(event, 'x_root', self.root.winfo_pointerx())
+        screen_y = getattr(event, 'y_root', self.root.winfo_pointery())
+        self.highlight_toolbar = tk.Toplevel(self.root)
+        self.highlight_toolbar.wm_overrideredirect(True)
+        self.highlight_toolbar.attributes('-topmost', True)
+        self.highlight_toolbar.geometry(f"+{screen_x}+{screen_y-30}")
+
+        toolbar = HighlightToolbar(self.highlight_toolbar, lambda color: self.apply_diagram_highlight(color))
+        toolbar.pack(fill=tk.BOTH, expand=True)
+
+    def apply_diagram_highlight(self, color: Optional[str]):
+        """Apply/remove highlight to selected diagram region."""
+        if not self._diagram_selection:
+            return
+
+        canvas = self._diagram_selection['canvas']
+        temp_rect = self._diagram_selection['temp_rect']
+        x1, y1, x2, y2 = canvas.coords(temp_rect)
+        canvas.delete(temp_rect)
+
+        if color:
+            highlight_id = canvas.create_rectangle(
+                x1, y1, x2, y2,
+                fill=color,
+                outline='',
+                stipple='gray25'
+            )
+            key = id(canvas)
+            self._diagram_highlights.setdefault(key, []).append(highlight_id)
+        
+        if self.highlight_toolbar:
+            self.highlight_toolbar.destroy()
+            self.highlight_toolbar = None
+        self._diagram_selection = None
+
     def render_flowchart_graphically(self, canvas, flowchart_text):
-        """Render flowchart as graphical elements on canvas"""
-        # Simple flowchart parser and renderer
-        lines = flowchart_text.split('\n')
-        
+        """Render flowchart as graphical elements on canvas."""
+        lines = [line.strip() for line in flowchart_text.split('\n')]
+
         y_position = 30
-        x_center = 325  # Center of canvas
-        box_width = 200
-        box_height = 60
-        
-        # Track elements for connections
-        elements = []
-        
+        x_center = 450
+        default_box_width = 260
+        box_height = 66
+        arrow_gap = 22
+
+        def is_blank_text(value: str) -> bool:
+            return '[BLANK]' in value or bool(re.search(r'\[\d+\]', value))
+
+        def draw_box(x: int, y: int, label: str, width: int = default_box_width):
+            blank = is_blank_text(label)
+            fill_color = '#ffeb3b' if blank else '#e8f4f8'
+            canvas.create_rectangle(
+                x - width // 2,
+                y,
+                x + width // 2,
+                y + box_height,
+                fill=fill_color,
+                outline='#2c3e50',
+                width=2
+            )
+            canvas.create_text(
+                x,
+                y + box_height // 2,
+                text=label,
+                font=('Arial', 11, 'bold' if blank else 'normal'),
+                width=width - 24
+            )
+
+        def draw_vertical_arrow(x: int, y_start: int, y_end: int):
+            if y_end <= y_start:
+                return
+            canvas.create_line(x, y_start, x, y_end, arrow=tk.LAST, width=2, fill='#34495e')
+
+        def parse_horizontal_parts(line: str):
+            return [part.strip() for part in re.split(r'\s*(?:→|->)\s*', line) if part.strip()]
+
         for line in lines:
-            line = line.strip()
             if not line:
+                y_position += 18
+                continue
+
+            if line in {'↓', 'v', 'V'}:
+                draw_vertical_arrow(x_center, y_position, y_position + 28)
+                y_position += 36
+                continue
+
+            if re.search(r'(→|->)', line):
+                parts = parse_horizontal_parts(line)
+                if not parts:
+                    continue
+
+                spacing = 290
+                total_width = spacing * (len(parts) - 1)
+                start_x = max(180, x_center - total_width // 2)
+
+                previous_x = None
+                for idx, part in enumerate(parts):
+                    x_pos = start_x + idx * spacing
+                    draw_box(x_pos, y_position, part)
+
+                    if previous_x is not None:
+                        canvas.create_line(
+                            previous_x + default_box_width // 2,
+                            y_position + box_height // 2,
+                            x_pos - default_box_width // 2,
+                            y_position + box_height // 2,
+                            arrow=tk.LAST,
+                            width=2,
+                            fill='#34495e'
+                        )
+                    previous_x = x_pos
+
+                y_position += box_height + arrow_gap
+                continue
+
+            if line.startswith('Step') or line.startswith('step'):
+                draw_box(x_center, y_position, line)
+                draw_vertical_arrow(x_center, y_position + box_height, y_position + box_height + 26)
+                y_position += box_height + 34
+                continue
+
+            if any(ch in line for ch in ['┌', '└', '│', '─', '╱', '╲', '◆', '◇']):
+                canvas.create_text(x_center, y_position, text=line, font=('Courier', 11), anchor='n')
                 y_position += 20
                 continue
-            
-            # Detect flowchart elements
-            if '→' in line or '->' in line:
-                # Horizontal flow - draw boxes connected by arrows
-                parts = re.split(r'[→->]+', line)
-                x_pos = 50
-                prev_x = None
-                prev_y = None
-                
-                for part in parts:
-                    part = part.strip()
-                    if part:
-                        # Check if it's a blank
-                        is_blank = '[BLANK]' in part or bool(re.search(r'\[\d+\]', part))
-                        fill_color = '#ffeb3b' if is_blank else '#e8f4f8'
-                        
-                        # Draw box
-                        canvas.create_rectangle(x_pos, y_position, x_pos + 150, y_position + 50,
-                                              fill=fill_color, outline='#2c3e50', width=2)
-                        canvas.create_text(x_pos + 75, y_position + 25, text=part,
-                                         font=('Arial', 10, 'bold' if is_blank else 'normal'),
-                                         width=140)
-                        
-                        # Draw arrow from previous box
-                        if prev_x is not None:
-                            canvas.create_line(prev_x + 150, prev_y + 25, x_pos, y_position + 25,
-                                             arrow=tk.LAST, width=2, fill='#34495e')
-                        
-                        prev_x = x_pos
-                        prev_y = y_position
-                        x_pos += 200
-                
-                y_position += 80
-            
-            elif '↓' in line or 'v' in line or '↑' in line:
-                # Vertical connector
-                y_position += 30
-            
-            elif line.startswith('Step') or line.startswith('step'):
-                # Step box
-                is_blank = '[BLANK]' in line or bool(re.search(r'\[\d+\]', line))
-                fill_color = '#ffeb3b' if is_blank else '#e8f4f8'
-                
-                canvas.create_rectangle(x_center - box_width//2, y_position,
-                                      x_center + box_width//2, y_position + box_height,
-                                      fill=fill_color, outline='#2c3e50', width=2, tags='box')
-                canvas.create_text(x_center, y_position + box_height//2, text=line,
-                                 font=('Arial', 10, 'bold' if is_blank else 'normal'),
-                                 width=box_width - 20, tags='text')
-                
-                # Draw arrow down
-                canvas.create_line(x_center, y_position + box_height,
-                                 x_center, y_position + box_height + 30,
-                                 arrow=tk.LAST, width=2, fill='#34495e')
-                
-                y_position += box_height + 40
-            
-            elif '┌' in line or '└' in line or '│' in line or '─' in line:
-                # ASCII box drawing - render as is with Text widget
-                text_id = canvas.create_text(x_center, y_position, text=line,
-                                            font=('Courier', 9), anchor='n')
-                y_position += 15
-            
-            elif 'Decision' in line or '╱' in line or '╲' in line:
-                # Decision diamond
-                is_blank = '[BLANK]' in line or bool(re.search(r'\[\d+\]', line))
-                fill_color = '#ffeb3b' if is_blank else '#fff9e6'
-                
-                # Draw diamond
-                points = [
-                    x_center, y_position,  # top
-                    x_center + 80, y_position + 40,  # right
-                    x_center, y_position + 80,  # bottom
-                    x_center - 80, y_position + 40  # left
-                ]
-                canvas.create_polygon(points, fill=fill_color, outline='#2c3e50', width=2)
-                
-                # Extract text
-                text = re.sub(r'[╱╲\\\/]', '', line).strip()
-                canvas.create_text(x_center, y_position + 40, text=text,
-                                 font=('Arial', 9, 'bold' if is_blank else 'normal'),
-                                 width=120)
-                
-                y_position += 100
-            
-            else:
-                # Regular text/label
-                is_blank = '[BLANK]' in line or bool(re.search(r'\[\d+\]', line))
-                fill_color = '#ffeb3b' if is_blank else '#e8f4f8'
-                
-                canvas.create_rectangle(x_center - box_width//2, y_position,
-                                      x_center + box_width//2, y_position + box_height,
-                                      fill=fill_color, outline='#2c3e50', width=2)
-                canvas.create_text(x_center, y_position + box_height//2, text=line,
-                                 font=('Arial', 10, 'bold' if is_blank else 'normal'),
-                                 width=box_width - 20)
-                
-                y_position += box_height + 20
-        
-        # Update scroll region
+
+            draw_box(x_center, y_position, line)
+            y_position += box_height + 18
+
         canvas.configure(scrollregion=canvas.bbox("all"))
-    
+
     def canvas_click_handler(self, event, canvas):
         """Handle clicks on canvas for potential future highlighting"""
         # Placeholder for canvas text highlighting if needed
@@ -902,7 +1194,6 @@ class ExamEngineWindow:
         self.end_btn.config(state=tk.DISABLED)
         
         # Lock UI
-        self.reading_text.config(state=tk.DISABLED)
         for widget in self.answer_widgets.values():
             if isinstance(widget, tk.Entry):
                 widget.config(state=tk.DISABLED)

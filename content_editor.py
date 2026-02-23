@@ -3,9 +3,10 @@ Content Editor Module
 Provides tools for creating, editing, and storing complete IELTS reading packages
 """
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, filedialog, font as tkfont
+from tkinter import ttk, scrolledtext, messagebox, filedialog, simpledialog, font as tkfont
 from typing import Optional
 import uuid
+import json
 from models import (
     ReadingPackage, ReadingContent, Paragraph, QuestionGroup,
     Question, QuestionType, AdditionalInput
@@ -262,9 +263,12 @@ class ContentEditorWindow:
         dialog = tk.Toplevel(self.root)
         dialog.title("Add Question Group")
         dialog.geometry("1000x750")
-        
-        # Make dialog scrollable
-        main_canvas = tk.Canvas(dialog)
+        dialog.minsize(860, 620)
+        dialog.rowconfigure(0, weight=1)
+        dialog.columnconfigure(0, weight=1)
+
+        # Make dialog scrollable and responsive to resizing
+        main_canvas = tk.Canvas(dialog, highlightthickness=0)
         scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=main_canvas.yview)
         scrollable_dialog = tk.Frame(main_canvas)
         
@@ -273,8 +277,13 @@ class ContentEditorWindow:
             lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all"))
         )
         
-        main_canvas.create_window((0, 0), window=scrollable_dialog, anchor="nw")
+        dialog_window = main_canvas.create_window((0, 0), window=scrollable_dialog, anchor="nw")
         main_canvas.configure(yscrollcommand=scrollbar.set)
+
+        def fit_dialog_content_to_canvas(event):
+            main_canvas.itemconfigure(dialog_window, width=event.width)
+
+        main_canvas.bind("<Configure>", fit_dialog_content_to_canvas)
         
         # Explanation
         tk.Label(scrollable_dialog, text="Explanation:", font=('Arial', 10, 'bold')).pack(anchor=tk.W, padx=10, pady=5)
@@ -286,12 +295,12 @@ class ContentEditorWindow:
         type_var = tk.StringVar(value=QuestionType.TYPE1.value)
         type_combo = ttk.Combobox(scrollable_dialog, textvariable=type_var, 
                                   values=[qt.value for qt in QuestionType], width=50, state='readonly')
-        type_combo.pack(anchor=tk.W, padx=10)
+        type_combo.pack(fill=tk.X, padx=10)
         
         # Additional inputs frame (for lists, images, etc.)
         additional_frame = tk.LabelFrame(scrollable_dialog, text="Additional Inputs (depends on question type)", 
                                         font=('Arial', 10, 'bold'), padx=10, pady=10)
-        additional_frame.pack(fill=tk.X, padx=10, pady=10)
+        additional_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         additional_widgets = {}
         
@@ -358,6 +367,10 @@ class ContentEditorWindow:
                 def update_type9_input():
                     for widget in content_frame.winfo_children():
                         widget.destroy()
+
+                    # Remove stale references from previous Type 9 mode widgets
+                    for key in ('summaryData', 'tableData', 'flowchartData'):
+                        additional_widgets.pop(key, None)
                     
                     input_type = input_type_var.get()
                     
@@ -387,60 +400,158 @@ class ContentEditorWindow:
                         cols_var = tk.StringVar(value="3")
                         tk.Spinbox(control_frame, from_=2, to=6, textvariable=cols_var, width=5).pack(side=tk.LEFT)
                         
-                        table_data = {'rows': rows_var, 'cols': cols_var, 'cells': {}}
-                        
+                        table_data = {
+                            'rows': rows_var,
+                            'cols': cols_var,
+                            'cells': {},
+                            'selected_cell': None,
+                            'font_family': 'Arial',
+                            'font_size': 12
+                        }
+
+                        style_frame = tk.Frame(table_builder_frame)
+                        style_frame.pack(fill=tk.X, pady=(0, 5))
+
+                        tk.Label(style_frame, text="Cell Text Controls:", font=('Arial', 9, 'bold')).pack(side=tk.LEFT, padx=5)
+                        tk.Label(style_frame, text="Size:").pack(side=tk.LEFT, padx=(8, 2))
+                        font_size_var = tk.StringVar(value="12")
+                        font_size_combo = ttk.Combobox(
+                            style_frame,
+                            textvariable=font_size_var,
+                            values=['10', '11', '12', '13', '14', '16', '18'],
+                            width=4,
+                            state='readonly'
+                        )
+                        font_size_combo.pack(side=tk.LEFT)
+
+                        def set_selected_cell(widget):
+                            table_data['selected_cell'] = widget
+                            widget.configure(highlightthickness=2, highlightbackground='#3498db', highlightcolor='#3498db')
+
+                        def clear_other_cell_highlights(selected_widget):
+                            for cell in table_data['cells'].values():
+                                if cell != selected_widget:
+                                    cell.configure(highlightthickness=1, highlightbackground='#d0d0d0', highlightcolor='#d0d0d0')
+
+                        def apply_cell_style(style_name):
+                            selected_cell = table_data.get('selected_cell')
+                            if not selected_cell:
+                                messagebox.showinfo("Select a table cell", "Click inside a cell first, then apply text style.")
+                                return
+                            try:
+                                start = selected_cell.index('sel.first')
+                                end = selected_cell.index('sel.last')
+                            except tk.TclError:
+                                start, end = '1.0', 'end-1c'
+
+                            if style_name in selected_cell.tag_names('insert'):
+                                selected_cell.tag_remove(style_name, start, end)
+                            else:
+                                selected_cell.tag_add(style_name, start, end)
+
+                        def apply_font_size(event=None):
+                            selected_cell = table_data.get('selected_cell')
+                            if not selected_cell:
+                                return
+                            size = int(font_size_var.get())
+                            table_data['font_size'] = size
+                            selected_cell.configure(font=(table_data['font_family'], size))
+                            selected_cell.tag_configure('bold', font=(table_data['font_family'], size, 'bold'))
+                            selected_cell.tag_configure('italic', font=(table_data['font_family'], size, 'italic'))
+
+                        tk.Button(style_frame, text='B', width=3, font=('Arial', 10, 'bold'),
+                                  command=lambda: apply_cell_style('bold')).pack(side=tk.LEFT, padx=3)
+                        tk.Button(style_frame, text='I', width=3, font=('Arial', 10, 'italic'),
+                                  command=lambda: apply_cell_style('italic')).pack(side=tk.LEFT, padx=2)
+                        font_size_combo.bind('<<ComboboxSelected>>', apply_font_size)
+
+                        tk.Label(style_frame, text="Tip: select text in a cell and press B/I", 
+                                font=('Arial', 8, 'italic')).pack(side=tk.LEFT, padx=10)
+
                         def create_table():
                             # Clear existing table
                             for widget in table_display_frame.winfo_children():
                                 widget.destroy()
-                            
+
                             rows = int(rows_var.get())
                             cols = int(cols_var.get())
                             table_data['cells'] = {}
-                            
+                            table_data['selected_cell'] = None
+
                             # Create table grid
                             for r in range(rows):
                                 for c in range(cols):
-                                    cell_entry = tk.Entry(table_display_frame, width=15)
-                                    cell_entry.grid(row=r, column=c, padx=2, pady=2, sticky='ew')
-                                    
+                                    cell_entry = tk.Text(
+                                        table_display_frame,
+                                        width=34,
+                                        height=5,
+                                        wrap=tk.WORD,
+                                        font=(table_data['font_family'], table_data['font_size']),
+                                        relief=tk.SOLID,
+                                        bd=1,
+                                        padx=7,
+                                        pady=6,
+                                        undo=True
+                                    )
+                                    cell_entry.grid(row=r, column=c, padx=4, pady=4, sticky='nsew')
+                                    cell_entry.tag_configure('bold', font=(table_data['font_family'], table_data['font_size'], 'bold'))
+                                    cell_entry.tag_configure('italic', font=(table_data['font_family'], table_data['font_size'], 'italic'))
+                                    cell_entry.configure(highlightthickness=1, highlightbackground='#d0d0d0', highlightcolor='#d0d0d0')
+                                    cell_entry.bind('<FocusIn>', lambda e, w=cell_entry: (set_selected_cell(w), clear_other_cell_highlights(w)))
+
                                     # Pre-fill header row
                                     if r == 0:
-                                        cell_entry.insert(0, f"Header {c+1}")
-                                    
+                                        cell_entry.insert("1.0", f"Header {c+1}")
+
                                     table_data['cells'][f"{r},{c}"] = cell_entry
-                            
-                            # Configure column weights for expansion
+
+                            # Configure weights for easier expansion and editing
+                            for r in range(rows):
+                                table_display_frame.rowconfigure(r, weight=1)
                             for c in range(cols):
                                 table_display_frame.columnconfigure(c, weight=1)
-                        
+
                         tk.Button(control_frame, text="Create Table", command=create_table,
                                  bg='#3498db', fg='white').pack(side=tk.LEFT, padx=10)
-                        
+
                         tk.Label(control_frame, text="Use [BLANK] or [1], [2], etc. for gaps",
                                 font=('Arial', 8, 'italic')).pack(side=tk.LEFT, padx=10)
-                        
+
                         # Table display area with scrollbar
                         table_scroll_frame = tk.Frame(table_builder_frame)
                         table_scroll_frame.pack(fill=tk.BOTH, expand=True, pady=5)
-                        
-                        table_canvas = tk.Canvas(table_scroll_frame, height=200)
-                        table_scrollbar = tk.Scrollbar(table_scroll_frame, orient="vertical", 
+
+                        table_canvas = tk.Canvas(table_scroll_frame, height=420)
+                        table_scrollbar = tk.Scrollbar(table_scroll_frame, orient="vertical",
                                                       command=table_canvas.yview)
+                        table_scrollbar_x = tk.Scrollbar(table_scroll_frame, orient="horizontal",
+                                                         command=table_canvas.xview)
                         table_display_frame = tk.Frame(table_canvas)
-                        
-                        table_display_frame.bind("<Configure>", 
-                                                lambda e: table_canvas.configure(scrollregion=table_canvas.bbox("all")))
-                        
-                        table_canvas.create_window((0, 0), window=table_display_frame, anchor="nw")
-                        table_canvas.configure(yscrollcommand=table_scrollbar.set)
-                        
+
+                        table_window = table_canvas.create_window((0, 0), window=table_display_frame, anchor="nw")
+                        table_canvas.configure(
+                            yscrollcommand=table_scrollbar.set,
+                            xscrollcommand=table_scrollbar_x.set
+                        )
+
+                        def sync_table_canvas_width(event=None):
+                            required_width = table_display_frame.winfo_reqwidth()
+                            canvas_width = table_canvas.winfo_width()
+                            target_width = canvas_width if required_width <= canvas_width else required_width
+                            table_canvas.itemconfigure(table_window, width=target_width)
+                            table_canvas.configure(scrollregion=table_canvas.bbox("all"))
+
+                        table_display_frame.bind("<Configure>", sync_table_canvas_width)
+                        table_canvas.bind("<Configure>", sync_table_canvas_width)
+
                         table_canvas.pack(side="left", fill="both", expand=True)
                         table_scrollbar.pack(side="right", fill="y")
-                        
+                        table_scrollbar_x.pack(side="bottom", fill="x")
+
                         # Create initial table
                         create_table()
-                        
+                        table_builder_frame.after_idle(sync_table_canvas_width)
+
                         additional_widgets['tableData'] = table_data
                         additional_widgets['type9_mode'] = 'table'
                     
@@ -516,11 +627,188 @@ Step 3: Final outcome
                 update_type9_input()  # Initialize
                 
             elif selected_type == QuestionType.TYPE10.value:  # Diagram label completion
-                tk.Label(additional_frame, text="Diagram Description/Image Path:", 
-                        font=('Arial', 9)).pack(anchor=tk.W, pady=5)
-                diagram_text = scrolledtext.ScrolledText(additional_frame, height=4, width=70)
+                tk.Label(additional_frame, text="Diagram/Picture Input:", 
+                        font=('Arial', 9, 'bold')).pack(anchor=tk.W, pady=5)
+
+                helper_label = tk.Label(
+                    additional_frame,
+                    text="Use image path, text description, or open Diagram Painter to build a diagram.",
+                    font=('Arial', 8, 'italic'),
+                    fg='#555555'
+                )
+                helper_label.pack(anchor=tk.W)
+
+                controls = tk.Frame(additional_frame)
+                controls.pack(fill=tk.X, pady=5)
+
+                diagram_text = scrolledtext.ScrolledText(additional_frame, height=5, width=70)
                 diagram_text.pack(fill=tk.X, pady=5)
                 diagram_text.insert("1.0", "Enter diagram description or image file path")
+
+                def choose_image_path():
+                    image_path = filedialog.askopenfilename(
+                        title="Select Diagram Image",
+                        filetypes=[("Image files", "*.png *.gif *.ppm *.pgm"), ("All files", "*.*")]
+                    )
+                    if image_path:
+                        diagram_text.delete("1.0", "end")
+                        diagram_text.insert("1.0", image_path)
+
+                def open_diagram_painter():
+                    painter = tk.Toplevel(dialog)
+                    painter.title("Diagram Painter")
+                    painter.geometry("980x680")
+                    painter.minsize(860, 560)
+
+                    painter_data = {
+                        'elements': [],
+                        'active_tool': tk.StringVar(value='pen'),
+                        'line_color': '#000000',
+                        'line_width': tk.IntVar(value=2),
+                        'current_points': [],
+                        'background_path': None,
+                        'bg_photo': None
+                    }
+
+                    toolbar = tk.Frame(painter)
+                    toolbar.pack(fill=tk.X, padx=6, pady=6)
+
+                    tk.Label(toolbar, text='Tool:', font=('Arial', 9, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
+                    for tool in ['pen', 'line', 'rect', 'text']:
+                        tk.Radiobutton(toolbar, text=tool.title(), value=tool, variable=painter_data['active_tool']).pack(side=tk.LEFT, padx=2)
+
+                    tk.Label(toolbar, text='Width:').pack(side=tk.LEFT, padx=(10, 2))
+                    tk.Spinbox(toolbar, from_=1, to=8, textvariable=painter_data['line_width'], width=4).pack(side=tk.LEFT)
+
+                    def clear_canvas():
+                        canvas.delete('all')
+                        painter_data['elements'].clear()
+                        if painter_data['background_path']:
+                            try:
+                                img = tk.PhotoImage(file=painter_data['background_path'])
+                                painter_data['bg_photo'] = img
+                                canvas.create_image(0, 0, image=img, anchor='nw', tags='bg_image')
+                            except tk.TclError:
+                                painter_data['background_path'] = None
+
+                    def load_background():
+                        image_path = filedialog.askopenfilename(
+                            title='Select Background Diagram Image',
+                            filetypes=[('Image files', '*.png *.gif *.ppm *.pgm'), ('All files', '*.*')]
+                        )
+                        if not image_path:
+                            return
+                        try:
+                            img = tk.PhotoImage(file=image_path)
+                        except tk.TclError:
+                            messagebox.showerror('Error', 'Unable to load selected image')
+                            return
+                        painter_data['background_path'] = image_path
+                        painter_data['bg_photo'] = img
+                        clear_canvas()
+
+                    tk.Button(toolbar, text='Load Background', command=load_background).pack(side=tk.LEFT, padx=6)
+                    tk.Button(toolbar, text='Clear', command=clear_canvas).pack(side=tk.LEFT, padx=4)
+
+                    canvas = tk.Canvas(painter, bg='white', relief=tk.SOLID, bd=1)
+                    canvas.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+
+                    def on_press(event):
+                        tool = painter_data['active_tool'].get()
+                        if tool == 'text':
+                            text_value = simpledialog.askstring('Add Text', 'Enter text for diagram:', parent=painter)
+                            if text_value:
+                                canvas.create_text(event.x, event.y, text=text_value, anchor='nw', font=('Arial', 12))
+                                painter_data['elements'].append({'kind': 'text', 'x': event.x, 'y': event.y, 'text': text_value})
+                            return
+
+                        painter_data['start_x'] = event.x
+                        painter_data['start_y'] = event.y
+                        if tool == 'pen':
+                            painter_data['current_points'] = [(event.x, event.y)]
+                            painter_data['temp_item'] = canvas.create_line(event.x, event.y, event.x + 1, event.y + 1,
+                                                                           fill=painter_data['line_color'],
+                                                                           width=painter_data['line_width'].get(),
+                                                                           smooth=True)
+                        elif tool == 'line':
+                            painter_data['temp_item'] = canvas.create_line(
+                                event.x, event.y, event.x, event.y,
+                                fill=painter_data['line_color'],
+                                width=painter_data['line_width'].get()
+                            )
+                        elif tool == 'rect':
+                            painter_data['temp_item'] = canvas.create_rectangle(
+                                event.x, event.y, event.x, event.y,
+                                outline=painter_data['line_color'],
+                                width=painter_data['line_width'].get()
+                            )
+
+                    def on_drag(event):
+                        tool = painter_data['active_tool'].get()
+                        temp_item = painter_data.get('temp_item')
+                        if not temp_item:
+                            return
+                        if tool == 'pen':
+                            pts = painter_data['current_points']
+                            pts.append((event.x, event.y))
+                            flat = [c for point in pts for c in point]
+                            canvas.coords(temp_item, *flat)
+                        else:
+                            canvas.coords(temp_item, painter_data['start_x'], painter_data['start_y'], event.x, event.y)
+
+                    def on_release(event):
+                        tool = painter_data['active_tool'].get()
+                        temp_item = painter_data.get('temp_item')
+                        if not temp_item:
+                            return
+                        if tool == 'pen':
+                            points = painter_data.get('current_points', [])
+                            if len(points) > 1:
+                                painter_data['elements'].append({
+                                    'kind': 'pen',
+                                    'points': points,
+                                    'color': painter_data['line_color'],
+                                    'width': painter_data['line_width'].get()
+                                })
+                        elif tool == 'line':
+                            painter_data['elements'].append({
+                                'kind': 'line',
+                                'coords': [painter_data['start_x'], painter_data['start_y'], event.x, event.y],
+                                'color': painter_data['line_color'],
+                                'width': painter_data['line_width'].get()
+                            })
+                        elif tool == 'rect':
+                            painter_data['elements'].append({
+                                'kind': 'rect',
+                                'coords': [painter_data['start_x'], painter_data['start_y'], event.x, event.y],
+                                'color': painter_data['line_color'],
+                                'width': painter_data['line_width'].get()
+                            })
+                        painter_data['temp_item'] = None
+
+                    canvas.bind('<ButtonPress-1>', on_press)
+                    canvas.bind('<B1-Motion>', on_drag)
+                    canvas.bind('<ButtonRelease-1>', on_release)
+
+                    def save_to_diagram_input():
+                        payload = {
+                            'type': 'diagram_editor_v1',
+                            'width': max(800, canvas.winfo_width()),
+                            'height': max(500, canvas.winfo_height()),
+                            'background_path': painter_data['background_path'],
+                            'elements': painter_data['elements']
+                        }
+                        diagram_text.delete('1.0', 'end')
+                        diagram_text.insert('1.0', '__DIAGRAM_EDITOR__' + json.dumps(payload))
+                        painter.destroy()
+
+                    tk.Button(painter, text='Use This Diagram', command=save_to_diagram_input,
+                              bg='#27ae60', fg='white').pack(pady=(0, 8))
+
+                tk.Button(controls, text='Choose Image', command=choose_image_path).pack(side=tk.LEFT, padx=4)
+                tk.Button(controls, text='Open Diagram Painter', command=open_diagram_painter,
+                          bg='#3498db', fg='white').pack(side=tk.LEFT, padx=4)
+
                 additional_widgets['diagramImage'] = diagram_text
             else:
                 tk.Label(additional_frame, text="No additional inputs required for this question type.", 
@@ -652,7 +940,7 @@ Step 3: Final outcome
                         for c in range(cols):
                             cell = table_info['cells'].get(f"{r},{c}")
                             if cell:
-                                row_data.append(cell.get())
+                                row_data.append(cell.get("1.0", "end-1c"))
                             else:
                                 row_data.append("")
                         table_content.append(row_data)
@@ -663,10 +951,14 @@ Step 3: Final outcome
                         'content': table_content
                     }
                 elif key == 'flowchartData':
+                    if not widget.winfo_exists():
+                        continue
                     content = widget.get("1.0", "end-1c").strip()
                     if content:
                         additional_data['flowchartData'] = content
                 elif isinstance(widget, scrolledtext.ScrolledText):
+                    if not widget.winfo_exists():
+                        continue
                     content = widget.get("1.0", "end-1c").strip()
                     if content:
                         if key in ['infoList', 'headingList', 'featureList', 'sentenceEndingList']:
@@ -716,8 +1008,8 @@ Step 3: Final outcome
         save_btn.pack(pady=15)
         
         # Pack canvas and scrollbar
-        main_canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        main_canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
     
     def view_question_groups(self):
         """View all question groups"""
