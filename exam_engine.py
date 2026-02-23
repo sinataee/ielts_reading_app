@@ -58,7 +58,7 @@ class HighlightToolbar(tk.Frame):
 class ExamEngineWindow:
     """Main Exam Engine Window"""
     
-    def __init__(self, root, package_path: Optional[str] = None):
+    def __init__(self, root, package_path: Optional[str] = None, package: Optional[ReadingPackage] = None, questions_left: bool = False):
         self.root = root
         self.root.title("IELTS Reading Exam")
         
@@ -91,8 +91,20 @@ class ExamEngineWindow:
         self._diagram_images: List[tk.PhotoImage] = []
         self._diagram_highlights: Dict[int, List[int]] = {}
         self._diagram_selection = None
+        self.questions_left = questions_left
         
-        if package_path:
+        if package is not None:
+            self.package = package
+            self.create_ui()
+            messagebox.showinfo(
+                "Package Loaded",
+                f"Package loaded successfully!\n\n"
+                f"Title: {self.package.reading_content.title}\n"
+                f"Question Groups: {len(self.package.question_groups)}\n"
+                f"Total Questions: {sum(len(qg.questions) for qg in self.package.question_groups)}\n\n"
+                f"Click 'Start Exam' to begin."
+            )
+        elif package_path:
             self.load_package(package_path)
         else:
             self.prompt_load_package()
@@ -166,31 +178,61 @@ class ExamEngineWindow:
         paned.pack(fill=tk.BOTH, expand=True)
         self.root.update_idletasks()
         
-        # Left pane - Reading content
+        # Two panes (order configurable)
         left_frame = tk.Frame(paned)
         right_frame = tk.Frame(paned)
         half_width = max(500, self.root.winfo_width() // 2)
+
+        reading_host = right_frame if self.questions_left else left_frame
+        questions_host = left_frame if self.questions_left else right_frame
+
+        paned.add(left_frame, minsize=450, width=half_width, stretch='always')
+        paned.add(right_frame, minsize=450, width=half_width, stretch='always')
+
+        tk.Label(reading_host, text="Reading Passage", font=('Arial', 14, 'bold'),
         paned.add(left_frame, minsize=450, width=half_width, stretch='always')
         
         tk.Label(left_frame, text="Reading Passage", font=('Arial', 14, 'bold'),
                 bg='#34495e', fg='white').pack(fill=tk.X)
-        
-        self.reading_text = scrolledtext.ScrolledText(left_frame, wrap=tk.WORD, 
+
+        self.reading_text = scrolledtext.ScrolledText(reading_host, wrap=tk.WORD,
                                                       font=('Arial', 12), padx=20, pady=15,
                                                       spacing1=3, spacing2=2, spacing3=3)
         self.reading_text.pack(fill=tk.BOTH, expand=True)
-        
+
         # Bind selection event for highlighting
         self.reading_text.bind("<<Selection>>", self.on_text_selection)
         self.reading_text.bind("<ButtonRelease-1>", self.on_text_selection)
         self.reading_text.bind('<Key>', lambda e: 'break')
+
         
         # Configure highlight tags
         self.reading_text.tag_configure('highlight_yellow', background='#FFFF00')
         self.reading_text.tag_configure('highlight_green', background='#90EE90')
         self.reading_text.tag_configure('highlight_blue', background='#ADD8E6')
         self.reading_text.tag_configure('highlight_pink', background='#FFB6C1')
+
+        def keep_balanced_panes():
+            try:
+                total = max(900, self.root.winfo_width())
+                if abs(total - self._last_pane_width) < 8:
+                    return
+                self._last_pane_width = total
+                paned.sash_place(0, total // 2, 1)
+            except tk.TclError:
+                pass
+
+        def schedule_balance(event=None):
+            if event is not None and event.widget is not self.root:
+                return
+            if self._pane_balance_job:
+                self.root.after_cancel(self._pane_balance_job)
+            self._pane_balance_job = self.root.after(80, keep_balanced_panes)
+
+        self.root.after_idle(keep_balanced_panes)
+        self.root.bind('<Configure>', schedule_balance, add='+')
         
+        tk.Label(questions_host, text="Questions", font=('Arial', 14, 'bold'),
         # Right pane - Questions
         paned.add(right_frame, minsize=450, width=half_width, stretch='always')
 
@@ -218,8 +260,8 @@ class ExamEngineWindow:
                 bg='#34495e', fg='white').pack(fill=tk.X)
         
         # Canvas with scrollbar for questions
-        canvas = tk.Canvas(right_frame)
-        scrollbar = ttk.Scrollbar(right_frame, orient="vertical", command=canvas.yview)
+        canvas = tk.Canvas(questions_host)
+        scrollbar = ttk.Scrollbar(questions_host, orient="vertical", command=canvas.yview)
         self.questions_frame = tk.Frame(canvas)
         
         self.questions_frame.bind(
@@ -251,7 +293,7 @@ class ExamEngineWindow:
         self._last_pane_width = 0
 
     def bind_mousewheel_scrolling(self, widget):
-        """Enable cross-platform mouse-wheel scrolling for canvas/text widgets."""
+        """Enable cross-platform mouse-wheel scrolling for the hovered widget only."""
         def _on_mousewheel(event):
             try:
                 if not widget.winfo_exists():
@@ -263,6 +305,11 @@ class ExamEngineWindow:
                 elif getattr(event, 'num', None) == 5:
                     widget.yview_scroll(1, "units")
             except tk.TclError:
+                return
+
+        widget.bind("<MouseWheel>", _on_mousewheel, add="+")
+        widget.bind("<Button-4>", _on_mousewheel, add="+")
+        widget.bind("<Button-5>", _on_mousewheel, add="+")
                 # Widget can be destroyed while global wheel bindings still fire.
                 return
 
