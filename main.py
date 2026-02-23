@@ -3,7 +3,7 @@ IELTS Reading Application - Main Launcher
 Provides a menu to launch different modules
 """
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 import sys
 import os
 
@@ -61,6 +61,16 @@ class MainLauncher:
         
         tk.Label(buttons_frame, text="Take a reading test with timing and scoring",
                 font=('Arial', 10, 'italic'), bg='#ecf0f1', fg='#7f8c8d').pack()
+
+        # Full IELTS (3 passages) button
+        full_exam_btn = tk.Button(buttons_frame, text="Take Full IELTS Reading (3 Packages)",
+                                  command=self.launch_full_reading_exam,
+                                  bg='#16a085', fg='white', font=('Arial', 13, 'bold'),
+                                  width=30, height=2, cursor='hand2')
+        full_exam_btn.pack(pady=10)
+
+        tk.Label(buttons_frame, text="Load exactly 3 package files and open each passage in its own screen",
+                font=('Arial', 10, 'italic'), bg='#ecf0f1', fg='#7f8c8d').pack()
         
         # Sample Package button
         sample_btn = tk.Button(buttons_frame, text="Create Sample Package",
@@ -102,6 +112,55 @@ class MainLauncher:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to launch Exam Engine:\n{str(e)}")
     
+    def launch_full_reading_exam(self):
+        """Launch one combined screen with 3 passages (questions left, reading right)."""
+        filepaths = filedialog.askopenfilenames(
+            title="Select exactly 3 Reading Package files",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+
+        if not filepaths:
+            return
+
+        if len(filepaths) != 3:
+            messagebox.showerror("Selection Error", "Please select exactly 3 package files.")
+            return
+
+        try:
+            import exam_engine
+            import uuid
+            from models import ReadingPackage, ReadingContent, Paragraph
+
+            packages = [ReadingPackage.load_from_file(path) for path in filepaths]
+
+            merged_package = ReadingPackage()
+            merged_package.package_id = str(uuid.uuid4())
+            merged_package.reading_content = ReadingContent(
+                explanation="You should spend about 20 minutes on each passage. Scroll to move between Passage 1, 2, and 3.",
+                title="Full IELTS Reading Test (3 Passages)",
+                paragraphs=[]
+            )
+
+            for i, pkg in enumerate(packages, start=1):
+                merged_package.reading_content.paragraphs.append(
+                    Paragraph(title=f"READING PASSAGE {i}: {pkg.reading_content.title}", body="")
+                )
+                for para in pkg.reading_content.paragraphs:
+                    merged_package.reading_content.paragraphs.append(para)
+
+                for qg in pkg.question_groups:
+                    if qg.explanation:
+                        qg.explanation = f"[Passage {i}]\n" + qg.explanation
+                    else:
+                        qg.explanation = f"[Passage {i}]"
+                    merged_package.question_groups.append(qg)
+
+            exam_window = tk.Toplevel(self.root)
+            exam_window.title("IELTS Reading Exam - Full Test")
+            exam_engine.ExamEngineWindow(exam_window, package=merged_package, questions_left=True)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to launch full reading exam:\n{str(e)}")
+
     def create_sample_package(self):
         """Create a sample reading package"""
         from tkinter import filedialog
