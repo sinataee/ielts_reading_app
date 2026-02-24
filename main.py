@@ -114,6 +114,7 @@ class MainLauncher:
     
     def launch_full_reading_exam(self):
         """Launch a full IELTS reading test with 3 packages (one window each)."""
+        """Launch one combined screen with 3 passages (questions left, reading right)."""
         filepaths = filedialog.askopenfilenames(
             title="Select exactly 3 Reading Package files",
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
@@ -132,6 +133,37 @@ class MainLauncher:
                 exam_window = tk.Toplevel(self.root)
                 exam_window.title(f"IELTS Reading Exam - Passage {i}")
                 exam_engine.ExamEngineWindow(exam_window, package_path=package_path)
+            import uuid
+            from models import ReadingPackage, ReadingContent, Paragraph
+
+            packages = [ReadingPackage.load_from_file(path) for path in filepaths]
+
+            merged_package = ReadingPackage()
+            merged_package.package_id = str(uuid.uuid4())
+            merged_package.reading_content = ReadingContent(
+                explanation="You should spend about 20 minutes on each passage. Scroll to move between Passage 1, 2, and 3.",
+                title="Full IELTS Reading Test (3 Passages)",
+                paragraphs=[]
+            )
+
+            for i, pkg in enumerate(packages, start=1):
+                merged_package.reading_content.paragraphs.append(
+                    Paragraph(title=f"READING PASSAGE {i}: {pkg.reading_content.title}", body="")
+                )
+                for para in pkg.reading_content.paragraphs:
+                    merged_package.reading_content.paragraphs.append(para)
+
+                for qg in pkg.question_groups:
+                    if qg.explanation:
+                        qg.explanation = f"[Passage {i}]\n" + qg.explanation
+                    else:
+                        qg.explanation = f"[Passage {i}]"
+                    merged_package.question_groups.append(qg)
+
+            exam_window = tk.Toplevel(self.root)
+            exam_window.title("IELTS Reading Exam - Full Test")
+            exam_engine.ExamEngineWindow(exam_window, package=merged_package, questions_left=True)
+            exam_engine.ExamEngineWindow(exam_window, package=merged_package, questions_left=False)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to launch full reading exam:\n{str(e)}")
 
