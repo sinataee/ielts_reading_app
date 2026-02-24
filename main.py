@@ -113,6 +113,7 @@ class MainLauncher:
             messagebox.showerror("Error", f"Failed to launch Exam Engine:\n{str(e)}")
     
     def launch_full_reading_exam(self):
+        """Launch a full IELTS reading test with 3 packages (one window each)."""
         """Launch one combined screen with 3 passages (questions left, reading right)."""
         filepaths = filedialog.askopenfilenames(
             title="Select exactly 3 Reading Package files",
@@ -128,6 +129,10 @@ class MainLauncher:
 
         try:
             import exam_engine
+            for i, package_path in enumerate(filepaths, start=1):
+                exam_window = tk.Toplevel(self.root)
+                exam_window.title(f"IELTS Reading Exam - Passage {i}")
+                exam_engine.ExamEngineWindow(exam_window, package_path=package_path)
             import uuid
             from models import ReadingPackage, ReadingContent, Paragraph
 
